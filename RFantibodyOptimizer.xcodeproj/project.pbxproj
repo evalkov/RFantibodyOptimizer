@@ -1,0 +1,397 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3139138B9D21E2F9F68CA68D /* DesignCampaign.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7365DD36B65005E0835FF19 /* DesignCampaign.swift */; };
+		45C96FA1073D0BD7E284E894 /* ProteinViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010CB8030EDD4B7CB4FBE34D /* ProteinViewer.swift */; };
+		5E3C253B234B4FB614193A1A /* ConfigPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11CD9DB540D9120763A0FC39 /* ConfigPanel.swift */; };
+		6FFD508CC0191965A9B013D0 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 168DE43928FBDC94F3752805 /* App.swift */; };
+		9452542A0A2AEBDB98EF4C96 /* NanobodyDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B292EA7C5C1F9FEBD11AD2 /* NanobodyDesign.swift */; };
+		AE84E6B0250B29228D47B65F /* TrajectoryPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03EC2EB9397E263A41A2E1FD /* TrajectoryPlayer.swift */; };
+		AE898E0FC8C4EC7783C254D2 /* DesignDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83F05D805D0CC1EABE76EF5B /* DesignDetailView.swift */; };
+		D3CE3BD4BADFA55CF85E89E4 /* PipelineRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6966035192BF199A6221E78 /* PipelineRunner.swift */; };
+		D7C929786ECB2A369EA9E52C /* DesignProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221031EDDC3E21C1FBB79D44 /* DesignProgressView.swift */; };
+		D892F85BABDAD5BAA292273B /* DesignConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78ABA6CE2F4146A6510A557 /* DesignConfig.swift */; };
+		E554F703AEDDCD58077FA9C4 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA70D4E50388D20D767DD5A /* ContentView.swift */; };
+		E76F4D4985629EABEFDE3321 /* ResultsTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4A8720ACD7E5235EC0FD9D /* ResultsTable.swift */; };
+		F2183BA936668B163C23D49F /* PDBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B400441791E12EDCE7C92FEC /* PDBParser.swift */; };
+		FDF76BC2D041DFAF82BCE599 /* h-NbBCII10.pdb in Resources */ = {isa = PBXBuildFile; fileRef = 959E4CBDE3FE5B1791F90E79 /* h-NbBCII10.pdb */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		010CB8030EDD4B7CB4FBE34D /* ProteinViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinViewer.swift; sourceTree = "<group>"; };
+		03EC2EB9397E263A41A2E1FD /* TrajectoryPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrajectoryPlayer.swift; sourceTree = "<group>"; };
+		11CD9DB540D9120763A0FC39 /* ConfigPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigPanel.swift; sourceTree = "<group>"; };
+		168DE43928FBDC94F3752805 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
+		221031EDDC3E21C1FBB79D44 /* DesignProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignProgressView.swift; sourceTree = "<group>"; };
+		44B292EA7C5C1F9FEBD11AD2 /* NanobodyDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanobodyDesign.swift; sourceTree = "<group>"; };
+		83F05D805D0CC1EABE76EF5B /* DesignDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignDetailView.swift; sourceTree = "<group>"; };
+		925AF945F9D4E0F7FE9ED438 /* RFantibodyOptimizer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RFantibodyOptimizer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		959E4CBDE3FE5B1791F90E79 /* h-NbBCII10.pdb */ = {isa = PBXFileReference; path = "h-NbBCII10.pdb"; sourceTree = "<group>"; };
+		B400441791E12EDCE7C92FEC /* PDBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDBParser.swift; sourceTree = "<group>"; };
+		BBA70D4E50388D20D767DD5A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		CE4A8720ACD7E5235EC0FD9D /* ResultsTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsTable.swift; sourceTree = "<group>"; };
+		D6966035192BF199A6221E78 /* PipelineRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineRunner.swift; sourceTree = "<group>"; };
+		E7365DD36B65005E0835FF19 /* DesignCampaign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignCampaign.swift; sourceTree = "<group>"; };
+		F78ABA6CE2F4146A6510A557 /* DesignConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignConfig.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		02B6954BFF042CA539AA0187 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B400441791E12EDCE7C92FEC /* PDBParser.swift */,
+				D6966035192BF199A6221E78 /* PipelineRunner.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		6123B44A1C9D29A9F25B5AE4 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				E7365DD36B65005E0835FF19 /* DesignCampaign.swift */,
+				F78ABA6CE2F4146A6510A557 /* DesignConfig.swift */,
+				44B292EA7C5C1F9FEBD11AD2 /* NanobodyDesign.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		DCA324DD4C66162CC38202F1 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				11CD9DB540D9120763A0FC39 /* ConfigPanel.swift */,
+				BBA70D4E50388D20D767DD5A /* ContentView.swift */,
+				83F05D805D0CC1EABE76EF5B /* DesignDetailView.swift */,
+				221031EDDC3E21C1FBB79D44 /* DesignProgressView.swift */,
+				010CB8030EDD4B7CB4FBE34D /* ProteinViewer.swift */,
+				CE4A8720ACD7E5235EC0FD9D /* ResultsTable.swift */,
+				03EC2EB9397E263A41A2E1FD /* TrajectoryPlayer.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E5BDA022FDB8035703E3BAD5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				925AF945F9D4E0F7FE9ED438 /* RFantibodyOptimizer.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EDF36C373D7E2792E43DBE74 /* RFantibodyOptimizer */ = {
+			isa = PBXGroup;
+			children = (
+				168DE43928FBDC94F3752805 /* App.swift */,
+				6123B44A1C9D29A9F25B5AE4 /* Models */,
+				FB378107A57864D8DB2C1678 /* Resources */,
+				02B6954BFF042CA539AA0187 /* Services */,
+				DCA324DD4C66162CC38202F1 /* Views */,
+			);
+			path = RFantibodyOptimizer;
+			sourceTree = "<group>";
+		};
+		F4970EF012DA481CDDF638B5 = {
+			isa = PBXGroup;
+			children = (
+				EDF36C373D7E2792E43DBE74 /* RFantibodyOptimizer */,
+				E5BDA022FDB8035703E3BAD5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		FB378107A57864D8DB2C1678 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				959E4CBDE3FE5B1791F90E79 /* h-NbBCII10.pdb */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2911D20B1E424C0B483364F9 /* RFantibodyOptimizer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E8C0697CBAE1E82D9B4E489 /* Build configuration list for PBXNativeTarget "RFantibodyOptimizer" */;
+			buildPhases = (
+				AF41169D5C1655D48DD7453F /* Sources */,
+				2B13962D140773DA0D215E5E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RFantibodyOptimizer;
+			packageProductDependencies = (
+			);
+			productName = RFantibodyOptimizer;
+			productReference = 925AF945F9D4E0F7FE9ED438 /* RFantibodyOptimizer.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7D91D0EDC213393A75C0E1EA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					2911D20B1E424C0B483364F9 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 1F557A7F4F80C1D52BDB2A30 /* Build configuration list for PBXProject "RFantibodyOptimizer" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F4970EF012DA481CDDF638B5;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = E5BDA022FDB8035703E3BAD5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2911D20B1E424C0B483364F9 /* RFantibodyOptimizer */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2B13962D140773DA0D215E5E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FDF76BC2D041DFAF82BCE599 /* h-NbBCII10.pdb in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AF41169D5C1655D48DD7453F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6FFD508CC0191965A9B013D0 /* App.swift in Sources */,
+				5E3C253B234B4FB614193A1A /* ConfigPanel.swift in Sources */,
+				E554F703AEDDCD58077FA9C4 /* ContentView.swift in Sources */,
+				3139138B9D21E2F9F68CA68D /* DesignCampaign.swift in Sources */,
+				D892F85BABDAD5BAA292273B /* DesignConfig.swift in Sources */,
+				AE898E0FC8C4EC7783C254D2 /* DesignDetailView.swift in Sources */,
+				D7C929786ECB2A369EA9E52C /* DesignProgressView.swift in Sources */,
+				9452542A0A2AEBDB98EF4C96 /* NanobodyDesign.swift in Sources */,
+				F2183BA936668B163C23D49F /* PDBParser.swift in Sources */,
+				D3CE3BD4BADFA55CF85E89E4 /* PipelineRunner.swift in Sources */,
+				45C96FA1073D0BD7E284E894 /* ProteinViewer.swift in Sources */,
+				E76F4D4985629EABEFDE3321 /* ResultsTable.swift in Sources */,
+				AE84E6B0250B29228D47B65F /* TrajectoryPlayer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		45D12A60B3E1EDCE8319B5EE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSMainNibFile = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rfantibody.RFantibodyOptimizer;
+				PRODUCT_NAME = RFantibodyOptimizer;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		6F3258C3AF50617E4DC777F4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		FAE89C3938FC4267CE1F5AB6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		FCE91E178603FDDFFD49FE73 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSMainNibFile = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rfantibody.RFantibodyOptimizer;
+				PRODUCT_NAME = RFantibodyOptimizer;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1F557A7F4F80C1D52BDB2A30 /* Build configuration list for PBXProject "RFantibodyOptimizer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6F3258C3AF50617E4DC777F4 /* Debug */,
+				FAE89C3938FC4267CE1F5AB6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5E8C0697CBAE1E82D9B4E489 /* Build configuration list for PBXNativeTarget "RFantibodyOptimizer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FCE91E178603FDDFFD49FE73 /* Debug */,
+				45D12A60B3E1EDCE8319B5EE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7D91D0EDC213393A75C0E1EA /* Project object */;
+}

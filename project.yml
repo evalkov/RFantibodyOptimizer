@@ -1,0 +1,28 @@
+name: RFantibodyOptimizer
+options:
+  bundleIdPrefix: com.rfantibody
+  deploymentTarget:
+    macOS: "15.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  RFantibodyOptimizer:
+    type: application
+    platform: macOS
+    sources:
+      - RFantibodyOptimizer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rfantibody.RFantibodyOptimizer
+        PRODUCT_NAME: RFantibodyOptimizer
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.healthcare-fitness"
+        INFOPLIST_KEY_NSMainNibFile: ""
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_APP_SANDBOX: NO
+        SWIFT_STRICT_CONCURRENCY: complete
