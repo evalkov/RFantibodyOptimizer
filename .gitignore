@@ -1,0 +1,21 @@
+# Model checkpoints (symlinked from RFantibody)
+models/
+
+# Python venv (symlinked from RFantibody)
+pilot_mps/
+
+# Diffusion schedule caches
+*.pkl
+cached_schedules/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

@@ -34,7 +34,7 @@ class PipelineRunner {
             return candidate
         }
         // Fall back to hardcoded dev path
-        return URL(filePath: "/Users/valkove2/Documents/GitHub/RFantibody")
+        return URL(filePath: "/Users/valkove2/Documents/GitHub/RFantibodyOptimizer")
     }
 
     static var defaultPythonURL: URL {
