@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ResultsTable: View {
     @Environment(DesignCampaign.self) private var campaign
@@ -37,6 +38,24 @@ struct ResultsTable: View {
                     }
                     Text("| \(campaign.elapsedTimeFormatted)")
                         .foregroundStyle(.secondary)
+                }
+
+                if !campaign.completedDesigns.isEmpty {
+                    Button {
+                        exportTSV(campaign: campaign)
+                    } label: {
+                        Image(systemName: "tablecells")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Export statistics as TSV")
+
+                    Button {
+                        exportArchive(campaign: campaign)
+                    } label: {
+                        Image(systemName: "archivebox")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Export all designs as .tgz")
                 }
 
                 Button {
@@ -238,6 +257,73 @@ struct LogView: View {
 
         return lines.joined(separator: "\n")
     }
+}
+
+// MARK: - Export Functions
+
+@MainActor private func exportTSV(campaign: DesignCampaign) {
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.tabSeparatedText]
+    panel.nameFieldStringValue = "designs.tsv"
+    panel.title = "Export Statistics"
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+
+    var lines: [String] = []
+    lines.append(["Design", "Stage", "pLDDT", "PAE", "iPAE", "P(bind)",
+                   "MPNN_Score", "CDR_RMSD", "Time_s"].joined(separator: "\t"))
+
+    for d in campaign.designs where d.stage == .complete {
+        let row: [String] = [
+            "\(d.id + 1)",
+            d.stage.rawValue,
+            d.plddt.map { String(format: "%.4f", $0) } ?? "",
+            d.pae.map { String(format: "%.2f", $0) } ?? "",
+            d.ipae.map { String(format: "%.2f", $0) } ?? "",
+            d.pBind.map { String(format: "%.4f", $0) } ?? "",
+            d.mpnnScore.map { String(format: "%.4f", $0) } ?? "",
+            d.cdrRMSD.map { String(format: "%.2f", $0) } ?? "",
+            d.totalTime.map { String(format: "%.1f", $0) } ?? "",
+        ]
+        lines.append(row.joined(separator: "\t"))
+    }
+
+    try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+}
+
+@MainActor private func exportArchive(campaign: DesignCampaign) {
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.init(filenameExtension: "tgz")!]
+    panel.nameFieldStringValue = "designs.tgz"
+    panel.title = "Export All Designs"
+    guard panel.runModal() == .OK, let destURL = panel.url else { return }
+
+    // Collect all PDB files into a temp staging directory
+    let fm = FileManager.default
+    let staging = fm.temporaryDirectory.appending(path: "RFantibodyExport-\(UUID().uuidString)")
+    try? fm.createDirectory(at: staging, withIntermediateDirectories: true)
+
+    for d in campaign.designs where d.stage == .complete {
+        let prefix = "design_\(d.id + 1)"
+        if let url = d.backbonePDB {
+            try? fm.copyItem(at: url, to: staging.appending(path: "\(prefix)_backbone.pdb"))
+        }
+        if let url = d.sequencePDB {
+            try? fm.copyItem(at: url, to: staging.appending(path: "\(prefix)_sequence.pdb"))
+        }
+        if let url = d.validatedPDB {
+            try? fm.copyItem(at: url, to: staging.appending(path: "\(prefix)_validated.pdb"))
+        }
+    }
+
+    // Create tar.gz
+    let proc = Process()
+    proc.executableURL = URL(filePath: "/usr/bin/tar")
+    proc.arguments = ["-czf", destURL.path(), "-C", staging.path(), "."]
+    try? proc.run()
+    proc.waitUntilExit()
+
+    // Clean up staging
+    try? fm.removeItem(at: staging)
 }
 
 // MARK: - Sortable wrapper (handles nil for Table sorting)

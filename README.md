@@ -82,6 +82,10 @@ Or open `RFantibodyOptimizer.xcodeproj` in Xcode and press Run.
 
 Press **Start Design Campaign** to run. The app shows live progress with a 3D protein viewer, then a sortable results table with per-design metrics (pLDDT, PAE, iPAE, P(bind), CDR RMSD).
 
+After a campaign completes, two export buttons appear in the results toolbar:
+- **Export TSV** (table icon) — saves all design metrics as a tab-separated file for downstream analysis
+- **Export Archive** (archive icon) — bundles all PDB files (backbone, sequence, validated) into a `.tgz` archive
+
 ### Command Line
 
 Run the pipeline directly without the GUI:
