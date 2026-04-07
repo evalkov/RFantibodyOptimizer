@@ -106,7 +106,11 @@ for ckpt in RFdiffusion_Ab.pt ProteinMPNN_v48_noise_0.2.pt RF2_ab.pt; do
 done
 echo ""
 
-# ── Step 5: Ad-hoc code sign ─────────────────────────────────────────
+# ── Step 5: Strip extended attributes & ad-hoc code sign ─────────────
+# Finder/rsync can leave resource forks and xattrs that break code signing.
+echo "==> Stripping extended attributes..."
+xattr -cr "${APP_PATH}"
+
 echo "==> Code signing..."
 codesign --force --deep --sign - "${APP_PATH}"
 echo "    Signed."
@@ -116,7 +120,9 @@ echo ""
 echo "==> Creating DMG..."
 rm -rf "${DMG_DIR}"
 mkdir -p "${DMG_DIR}"
-cp -R "${APP_PATH}" "${DMG_DIR}/"
+
+# Use ditto instead of cp -R to avoid reintroducing resource forks
+ditto "${APP_PATH}" "${DMG_DIR}/${APP_NAME}.app"
 ln -s /Applications "${DMG_DIR}/Applications"
 
 # Remove old DMG if present
