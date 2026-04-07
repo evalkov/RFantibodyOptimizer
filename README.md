@@ -172,6 +172,20 @@ MLX_MODE=draft SKIP_RF2=1 \
   pilot_mps/.venv/bin/python scripts/run_mlx_design.py
 ```
 
+### Design Modes
+
+The three modes control RFdiffusion's SE3 transformer parameters, trading structure quality for speed. MPNN and RF2 are unaffected by mode.
+
+| Mode | `se3_stride` | `n_main` | `top_k` | Description |
+|------|-------------|----------|---------|-------------|
+| **Full** | 1 | 32 | 64 | SE3 attention at every layer — best structure quality, slowest |
+| **Fast** | 4 | 32 | 64 | SE3 attention every 4th layer — ~2x faster, minimal quality loss |
+| **Draft** | 4 | 24 | 64 | Fewer main blocks + strided SE3 — fastest, lower quality |
+
+- **`se3_stride`** — how often the expensive equivariant SE3 attention is computed. Stride 1 = every layer, stride 4 = every 4th layer (intermediate layers reuse cached features).
+- **`n_main`** — number of main transformer blocks in the network. Fewer blocks = less computation but less expressive.
+- **`top_k`** — graph neighborhood size for attention (same across all modes).
+
 ## Performance
 
 Benchmarked on M4 Max (128 GB), nanobody L~163 residues:
