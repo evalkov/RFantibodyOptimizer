@@ -97,6 +97,26 @@ This will:
 
 The script expects `models/` and `pilot_mps/` to exist (either as real directories or symlinks that resolve). The resulting DMG is ~1.2 GB compressed and requires no external dependencies to run.
 
+### Note: managed Macs (NIH, institutional MDM)
+
+Managed Macs with Gatekeeper locked to "App Store & Known Developers" will block the ad-hoc signed app — both from the DMG and from `open` in Terminal. The app is not notarized, so macOS kills it on launch (exit code 137).
+
+**Workaround:** build and run from source using Xcode. Xcode-launched apps bypass Gatekeeper:
+
+1. Open `RFantibodyOptimizer.xcodeproj` in Xcode
+2. Press **Cmd+R** (Run)
+
+Alternatively, build from the command line and launch the resulting binary directly:
+
+```bash
+xcodebuild -scheme RFantibodyOptimizer -configuration Release \
+  -derivedDataPath /tmp/RFantibodyOptimizer-build build
+
+open /tmp/RFantibodyOptimizer-build/Build/Products/Release/RFantibodyOptimizer.app
+```
+
+The app uses `#filePath` at compile time to locate the repo checkout, so it will find `scripts/`, `models/`, and `pilot_mps/.venv/` regardless of where the build output lands.
+
 ## Usage
 
 ### GUI App
