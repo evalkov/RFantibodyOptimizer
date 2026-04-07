@@ -31,19 +31,26 @@ class PipelineRunner {
            FileManager.default.fileExists(atPath: resources.appending(path: "scripts/design_service.py").path()) {
             return resources
         }
-        // 2. Dev: app is at <repo>/Build/…/RFantibodyOptimizer.app — walk up to repo
+        // 2. Dev: walk up from the app bundle looking for the repo
         let bundlePath = Bundle.main.bundlePath
         var dir = URL(filePath: bundlePath).deletingLastPathComponent()
-        for _ in 0..<5 {
+        for _ in 0..<8 {
             if FileManager.default.fileExists(atPath: dir.appending(path: "scripts/design_service.py").path()) {
                 return dir
             }
             dir = dir.deletingLastPathComponent()
         }
-        // 3. Last resort: repo checkout next to Xcode project
-        return URL(filePath: bundlePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        // 3. Dev: derive repo root from this source file's compile-time path
+        let sourceFileURL = URL(filePath: #filePath)
+        let repoCandidate = sourceFileURL
+            .deletingLastPathComponent()  // Services/
+            .deletingLastPathComponent()  // RFantibodyOptimizer/
+            .deletingLastPathComponent()  // repo root
+        if FileManager.default.fileExists(atPath: repoCandidate.appending(path: "scripts/design_service.py").path()) {
+            return repoCandidate
+        }
+        // 4. Last resort
+        return repoCandidate
     }
 
     static var defaultPythonURL: URL {
