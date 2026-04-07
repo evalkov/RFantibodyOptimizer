@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import pickle
+import tempfile
 import time
 from typing import List
 
@@ -51,7 +52,8 @@ def get_chi_betaT(max_timestep=100, beta_0=0.01, abar_T=1e-3, method='cosine'):
     Calculated empirically
     """
 
-    name = f'./cached_schedules/T{max_timestep}_beta_0{beta_0}_abar_T{abar_T}_method_{method}.pkl'
+    cache_dir = os.path.join(tempfile.gettempdir(), 'RFantibodyOptimizer', 'cached_schedules')
+    name = os.path.join(cache_dir, f'T{max_timestep}_beta_0{beta_0}_abar_T{abar_T}_method_{method}.pkl')
 
     if not os.path.exists(name):
         print('Calculating chi_beta_T dictionary...')
@@ -73,8 +75,7 @@ def get_chi_betaT(max_timestep=100, beta_0=0.01, abar_T=1e-3, method='cosine'):
             beta_Ts[timestep] = idx.item()
 
         # save cached schedule
-        if not os.path.isdir('./cached_schedules/'):
-            os.makedirs('./cached_schedules/', exist_ok=True)
+        os.makedirs(cache_dir, exist_ok=True)
         with open(name, 'wb') as fp:
             pickle.dump(beta_Ts, fp)
 
