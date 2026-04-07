@@ -6,15 +6,26 @@ Native macOS app for nanobody design on Apple Silicon. Runs the full RFdiffusion
 ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-orange)
 ![Python 3.10](https://img.shields.io/badge/Python-3.10-green)
 
+## Install from DMG
+
+Download `RFantibodyOptimizer.dmg`, open it, and drag the app to `/Applications`. The DMG is fully self-contained (~1.2 GB) — Python runtime, ML models, and all dependencies are bundled inside the app. No setup required.
+
 ## Requirements
+
+### Running the pre-built DMG
 
 - **macOS 15+** (Sequoia or later)
 - **Apple Silicon** Mac (M1, M2, M3, or M4)
-- **Xcode 16+** (for building the app)
+
+### Building from source
+
+- Everything above, plus:
+- **Xcode 16+**
 - **Python 3.10** with [uv](https://github.com/astral-sh/uv) package manager
 - ~750 MB disk space for model checkpoints
+- ~1.4 GB disk space for the Python virtual environment
 
-## Installation
+## Building from Source
 
 ### 1. Clone the repository
 
@@ -50,7 +61,7 @@ uv pip install mlx mlx-metal
 uv pip install omegaconf hydra-core biopython biotite scipy numpy
 ```
 
-### 4. Build and run the app
+### 4. Build and run (development)
 
 Open the Xcode project and build:
 
@@ -67,6 +78,24 @@ open /tmp/RFantibodyOptimizer-build/Build/Products/Debug/RFantibodyOptimizer.app
 ```
 
 Or open `RFantibodyOptimizer.xcodeproj` in Xcode and press Run.
+
+### 5. Build a distributable DMG
+
+The `package_dmg.sh` script builds a self-contained `.app` bundle with everything embedded and wraps it in a DMG:
+
+```bash
+./package_dmg.sh
+```
+
+This will:
+1. Build the Release configuration via `xcodebuild`
+2. Bundle the standalone Python 3.10 runtime and all pip packages into `Contents/Resources/python/`
+3. Bundle the pipeline source (`src/`, `include/`, `scripts/`) into `Contents/Resources/`
+4. Copy model checkpoints into `Contents/Resources/models/`
+5. Ad-hoc code sign the app
+6. Create `RFantibodyOptimizer.dmg` in the repo root
+
+The script expects `models/` and `pilot_mps/` to exist (either as real directories or symlinks that resolve). The resulting DMG is ~1.2 GB compressed and requires no external dependencies to run.
 
 ## Usage
 

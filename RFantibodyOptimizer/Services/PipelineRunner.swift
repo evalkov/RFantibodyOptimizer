@@ -23,22 +23,40 @@ class PipelineRunner {
         isPaused = false
     }
 
-    /// Locate the repo root (parent of RFantibodyOptimizer/).
+    /// Locate the pipeline root — either inside the app bundle (distributed)
+    /// or the repo working tree (development).
     static var defaultRepoRoot: URL {
-        // Try relative to the app bundle first, then fall back
-        let bundlePath = Bundle.main.bundlePath
-        let appDir = URL(filePath: bundlePath).deletingLastPathComponent()
-        // RFantibodyOptimizer.app is in RFantibodyOptimizer/ which is in repo root
-        let candidate = appDir.deletingLastPathComponent()
-        if FileManager.default.fileExists(atPath: candidate.appending(path: "scripts/design_service.py").path()) {
-            return candidate
+        // 1. Bundled: Contents/Resources/ contains scripts/, src/, models/, etc.
+        if let resources = Bundle.main.resourceURL,
+           FileManager.default.fileExists(atPath: resources.appending(path: "scripts/design_service.py").path()) {
+            return resources
         }
-        // Fall back to hardcoded dev path
-        return URL(filePath: "/Users/valkove2/Documents/GitHub/RFantibodyOptimizer")
+        // 2. Dev: app is at <repo>/Build/…/RFantibodyOptimizer.app — walk up to repo
+        let bundlePath = Bundle.main.bundlePath
+        var dir = URL(filePath: bundlePath).deletingLastPathComponent()
+        for _ in 0..<5 {
+            if FileManager.default.fileExists(atPath: dir.appending(path: "scripts/design_service.py").path()) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        // 3. Last resort: repo checkout next to Xcode project
+        return URL(filePath: bundlePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     static var defaultPythonURL: URL {
-        defaultRepoRoot.appending(path: "pilot_mps/.venv/bin/python")
+        defaultRepoRoot.appending(path: "python/bin/python3")
+    }
+
+    /// Fall back to venv layout used during development.
+    static var defaultPythonURLResolved: URL {
+        let bundled = defaultRepoRoot.appending(path: "python/bin/python3")
+        if FileManager.default.fileExists(atPath: bundled.path()) {
+            return bundled
+        }
+        return defaultRepoRoot.appending(path: "pilot_mps/.venv/bin/python")
     }
 
     static var defaultScriptPath: String {
@@ -65,12 +83,14 @@ class PipelineRunner {
         }
 
         // Build process
+        let root = Self.defaultRepoRoot
         let proc = Process()
-        proc.executableURL = Self.defaultPythonURL
+        proc.executableURL = Self.defaultPythonURLResolved
         proc.arguments = [Self.defaultScriptPath]
-        proc.currentDirectoryURL = Self.defaultRepoRoot
+        proc.currentDirectoryURL = root
         proc.environment = [
-            "PYTHONPATH": "src:include/SE3Transformer",
+            "PYTHONPATH": root.appending(path: "src").path()
+                + ":" + root.appending(path: "include/SE3Transformer").path(),
             "PATH": "/usr/bin:/bin:/usr/local/bin",
             "HOME": NSHomeDirectory(),
         ]

@@ -17,5 +17,8 @@ DerivedData/
 __pycache__/
 *.pyc
 
+# DMG builds
+*.dmg
+
 # macOS
 .DS_Store
