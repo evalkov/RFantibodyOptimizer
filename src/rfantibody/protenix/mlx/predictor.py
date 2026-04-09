@@ -236,7 +236,7 @@ class ProtenixPredictor:
                 seq=features['seq'],
                 residue_index=features['residue_index'],
                 chain_id=features['chain_id'],
-                n_cycle=getattr(self.conf, 'n_cycle', 1),
+                n_cycle=self._cfg.get('n_cycle', 1),
                 run_confidence=True,
             )
 
@@ -300,7 +300,7 @@ class ProtenixPredictor:
                 seq=features['seq'],
                 residue_index=features['residue_index'],
                 chain_id=features['chain_id'],
-                n_cycle=getattr(self.conf, 'n_cycle', 1),
+                n_cycle=self._cfg.get('n_cycle', 1),
                 run_confidence=True,
             )
 
