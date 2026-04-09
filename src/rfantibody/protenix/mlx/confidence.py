@@ -137,14 +137,31 @@ class TriangleAttention(nn.Module):
             len(bias.shape) - 3, len(bias.shape) - 1, len(bias.shape) - 2
         ]
         bias = mx.transpose(bias, axes=bias_perm)
-        bias = mx.expand_dims(bias, axis=-1)  # [..., i, h, j, 1] for broadcast
+        # bias: [..., i, h, j] -> [..., i, h, 1, j] for SDPA additive mask
+        bias = mx.expand_dims(bias, axis=-2)
+
+        # SDPA requires rank 4. Fold batch dims + i into flat batch.
+        batch_shape = q.shape[:-3]  # everything before (i, h, j, d)
+        I = q.shape[-3]  # i dimension (after permute, this is the row dim)
+        # Actually after permute q is [..., i, h, j, d] so -4=i, -3=h, -2=j, -1=d
+        I = q.shape[len(batch_shape)]
+        flat_B = 1
+        for s in batch_shape:
+            flat_B *= s
+        flat_B *= I
+
+        q_4d = q.reshape(flat_B, self.n_head, N, self.d_head)
+        k_4d = k.reshape(flat_B, self.n_head, N, self.d_head)
+        v_4d = v.reshape(flat_B, self.n_head, N, self.d_head)
+        bias_4d = bias.reshape(flat_B, self.n_head, -1, N) if bias is not None else None
 
         scale = math.sqrt(self.d_head)
         attn = mx.fast.scaled_dot_product_attention(
-            q, k, v, scale=1.0 / scale
+            q_4d, k_4d, v_4d, scale=1.0 / scale, mask=bias_4d
         )
 
-        # [..., i, h, j, d] -> [..., i, j, h, d] -> [..., i, j, c_z]
+        # Unfold: (flat_B, h, j, d) -> [..., i, h, j, d] -> [..., i, j, h, d]
+        attn = attn.reshape(*batch_shape, I, self.n_head, N, self.d_head)
         attn = mx.transpose(attn, axes=perm)
         attn = attn.reshape(*attn.shape[:-2], z_in.shape[-1])
 
