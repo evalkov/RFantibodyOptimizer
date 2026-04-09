@@ -63,19 +63,20 @@ class ProtenixPredictor:
     """
 
     def __init__(self, conf, device='cpu'):
-        self.conf = conf
+        # Support both dict and object-style configs
+        if isinstance(conf, dict):
+            self._cfg = conf
+        else:
+            self._cfg = {k: getattr(conf, k, None) for k in dir(conf) if not k.startswith('_')}
         self.device = device
 
         # Load model
         from rfantibody.protenix.mlx.model_wrapper import MLXProtenixWrapper
 
-        model_weights = getattr(conf, 'protenix_weights', None)
-        if model_weights is None:
-            model_weights = getattr(conf.model, 'protenix_weights', None)
+        model_weights = self._cfg.get('model_weights')
         if model_weights is None:
             raise ValueError(
-                "Configuration must specify 'protenix_weights' path. "
-                "Set conf.model.protenix_weights or conf.protenix_weights."
+                "Configuration must specify 'model_weights' path."
             )
 
         if not os.path.exists(model_weights):
@@ -86,10 +87,7 @@ class ProtenixPredictor:
 
         _log.info(f'Loading Protenix MLX model from {model_weights}')
 
-        # Parse model parameters from config if available
-        model_params = None
-        if hasattr(conf, 'protenix_model_params'):
-            model_params = dict(conf.protenix_model_params)
+        model_params = self._cfg.get('model_params', None)
 
         self.model = MLXProtenixWrapper.from_checkpoint(
             model_weights, model_params=model_params, torch_device=device
@@ -105,10 +103,10 @@ class ProtenixPredictor:
         if n_pf_blocks > 0:
             self.model.set_n_pairformer_blocks(n_pf_blocks)
 
-        n_diff_steps = int(os.environ.get('PROTENIX_N_DIFF_STEPS', '5'))
+        n_diff_steps = int(self._cfg.get('n_diffusion_steps', os.environ.get('PROTENIX_N_DIFF_STEPS', '5')))
         self.model.set_n_diffusion_steps(n_diff_steps)
 
-        tea_cache = float(os.environ.get('PROTENIX_TEA_CACHE', '0'))
+        tea_cache = float(self._cfg.get('tea_cache_threshold', os.environ.get('PROTENIX_TEA_CACHE', '0')))
         if tea_cache > 0:
             self.model.enable_tea_cache(tea_cache)
 
