@@ -333,7 +333,7 @@ def _remap_key(key: str) -> str | None:
             'resolved_weight': 'resolved_weight',
         }
         if rest in conf_direct:
-            return f'confidence_head.{conf_direct[rest]}', value
+            return f'confidence_head.{conf_direct[rest]}'
 
         conf_renames = {
             'input_strunk_ln.': 'ln_s_trunk.',
