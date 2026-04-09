@@ -120,6 +120,7 @@ DEFAULTS = {
     'cache_enabled': True,
     'cache_threshold': 0.15,
     'cache_warmup': 3,
+    'validator': 'rf2',
 }
 
 MODE_CONFIGS = {
@@ -250,10 +251,27 @@ def run_pipeline(cfg):
         mpnn_time = time.time() - t0
         print(f"MPNN loaded in {mpnn_time:.1f}s", flush=True)
 
-    # --- Init RF2 ---
+    # --- Init structure validator (RF2 or Protenix) ---
     predictor = None
     rf2_time = 0
-    if not cfg.get('skip_rf2', False) and os.path.exists(rf2_ckpt):
+    validator = cfg.get('validator', 'rf2')
+    protenix_ckpt = os.path.join(script_dir, '..', 'models', 'protenix_mini.pt')
+
+    if validator == 'protenix' and not cfg.get('skip_rf2', False) and os.path.exists(protenix_ckpt):
+        emit({'event': 'init_start', 'component': 'protenix'})
+        t0 = time.time()
+        from rfantibody.protenix.mlx.predictor import ProtenixPredictor
+
+        protenix_conf = {
+            'model_weights': protenix_ckpt,
+            'n_diffusion_steps': 5,
+            'tea_cache_threshold': cfg.get('cache_threshold', 0.15),
+        }
+        predictor = ProtenixPredictor(protenix_conf, device='cpu')
+        rf2_time = time.time() - t0
+        print(f"Protenix-Mini-Flow loaded in {rf2_time:.1f}s", flush=True)
+
+    elif not cfg.get('skip_rf2', False) and os.path.exists(rf2_ckpt):
         emit({'event': 'init_start', 'component': 'rf2'})
         t0 = time.time()
         import rfantibody.rf2.modules.pose_util as pu
