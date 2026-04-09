@@ -96,11 +96,14 @@ class FourierEmbedding(nn.Module):
         c: output dimension (must be even; c//2 frequencies).
     """
 
-    def __init__(self, c: int = 256):
+    def __init__(self, c: int = 256, seed: int = 42):
         super().__init__()
-        assert c % 2 == 0, "FourierEmbedding dim must be even"
-        # Frozen random frequencies
-        self.W = mx.random.normal(shape=(c // 2,))
+        # Frozen random frequencies and biases (Algorithm 22)
+        # Protenix uses cos-only: output dim = c (not 2c)
+        key = mx.random.key(seed)
+        self.w = mx.random.normal(shape=(c,), key=key)
+        key2 = mx.random.key(seed + 1)
+        self.b = mx.random.normal(shape=(c,), key=key2)
 
     def __call__(self, x: mx.array) -> mx.array:
         """
@@ -111,9 +114,8 @@ class FourierEmbedding(nn.Module):
         """
         # x: [...] -> [..., 1]
         x = mx.expand_dims(x, axis=-1)
-        # [..., c//2]
-        proj = 2.0 * math.pi * x * self.W
-        return mx.concatenate([mx.sin(proj), mx.cos(proj)], axis=-1)
+        # cos(2π(x·w + b)) — cosine-only, matching Protenix
+        return mx.cos(2.0 * math.pi * (x * self.w + self.b))
 
 
 # ---------------------------------------------------------------------------
@@ -151,12 +153,12 @@ class DiffusionConditioning(nn.Module):
         self.c_z = c_z
 
         # Single conditioning
-        self.ln_s = nn.LayerNorm(c_s + c_s_inputs, affine=False)
+        self.ln_s = nn.LayerNorm(c_s + c_s_inputs)
         self.linear_s = LinearNoBias(c_s + c_s_inputs, c_s)
 
         # Noise embedding
         self.fourier_emb = FourierEmbedding(c=c_noise_emb)
-        self.ln_n = nn.LayerNorm(c_noise_emb, affine=False)
+        self.ln_n = nn.LayerNorm(c_noise_emb)
         self.linear_n = LinearNoBias(c_noise_emb, c_s)
 
         # Single transitions
