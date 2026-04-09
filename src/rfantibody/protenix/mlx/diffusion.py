@@ -242,7 +242,8 @@ class AttentionPairBias(nn.Module):
         self.w_k = LinearNoBias(c_a, c_a)
         self.w_v = LinearNoBias(c_a, c_a)
 
-        # Pair bias projection: c_z -> n_head
+        # Pair bias: normalize pair rep then project to per-head bias
+        self.layer_norm_z = nn.LayerNorm(c_z)
         self.linear_bias = LinearNoBias(c_z, n_head)
 
         # Gating
@@ -288,8 +289,8 @@ class AttentionPairBias(nn.Module):
         k = mx.transpose(k, axes=(*range(len(k.shape) - 3), -2, -3, -1))
         v = mx.transpose(v, axes=(*range(len(v.shape) - 3), -2, -3, -1))
 
-        # Pair bias: [..., N, N, c_z] -> [..., N, N, n_head] -> [..., n_head, N, N]
-        pair_bias = self.linear_bias(z)
+        # Pair bias: normalize then project [..., N, N, c_z] -> [..., N, N, n_head] -> [..., n_head, N, N]
+        pair_bias = self.linear_bias(self.layer_norm_z(z))
         pair_bias = mx.transpose(
             pair_bias,
             axes=(*range(len(pair_bias.shape) - 3), -1, -3, -2),

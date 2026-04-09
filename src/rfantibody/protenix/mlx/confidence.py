@@ -21,223 +21,8 @@ from typing import Optional
 import mlx.core as mx
 import mlx.nn as nn
 
-from rfantibody.protenix.mlx.diffusion import LinearNoBias, SwiGLUTransition
-
-
-# ---------------------------------------------------------------------------
-# Simplified PairformerBlock for the confidence head
-# ---------------------------------------------------------------------------
-
-class TriangleMultiplicationOutgoing(nn.Module):
-    """Simplified triangle multiplication (outgoing edges).
-
-    z_ij = z_ij + Linear(LayerNorm(z_ik) * LayerNorm(z_jk))
-    Approximated with projected outer-product-like update.
-    """
-
-    def __init__(self, c_z: int, c_hidden: int = 128):
-        super().__init__()
-        self.ln = nn.LayerNorm(c_z)
-        self.linear_a = LinearNoBias(c_z, c_hidden)
-        self.linear_b = LinearNoBias(c_z, c_hidden)
-        self.gate_a = nn.Linear(c_z, c_hidden)
-        self.gate_b = nn.Linear(c_z, c_hidden)
-        self.ln_out = nn.LayerNorm(c_hidden)
-        self.linear_out = LinearNoBias(c_hidden, c_z)
-        self.gate_out = nn.Linear(c_z, c_z)
-
-    def __call__(self, z: mx.array) -> mx.array:
-        z_in = self.ln(z)
-        a = self.linear_a(z_in) * mx.sigmoid(self.gate_a(z_in))
-        b = self.linear_b(z_in) * mx.sigmoid(self.gate_b(z_in))
-        # Triangle: sum over k: a_ik * b_jk
-        # [..., N, N, c_hidden]
-        x = mx.einsum("...ikc,...jkc->...ijc", a, b)
-        x = self.linear_out(self.ln_out(x))
-        x = x * mx.sigmoid(self.gate_out(z_in))
-        return x
-
-
-class TriangleMultiplicationIncoming(nn.Module):
-    """Simplified triangle multiplication (incoming edges)."""
-
-    def __init__(self, c_z: int, c_hidden: int = 128):
-        super().__init__()
-        self.ln = nn.LayerNorm(c_z)
-        self.linear_a = LinearNoBias(c_z, c_hidden)
-        self.linear_b = LinearNoBias(c_z, c_hidden)
-        self.gate_a = nn.Linear(c_z, c_hidden)
-        self.gate_b = nn.Linear(c_z, c_hidden)
-        self.ln_out = nn.LayerNorm(c_hidden)
-        self.linear_out = LinearNoBias(c_hidden, c_z)
-        self.gate_out = nn.Linear(c_z, c_z)
-
-    def __call__(self, z: mx.array) -> mx.array:
-        z_in = self.ln(z)
-        a = self.linear_a(z_in) * mx.sigmoid(self.gate_a(z_in))
-        b = self.linear_b(z_in) * mx.sigmoid(self.gate_b(z_in))
-        # Triangle: sum over k: a_ki * b_kj
-        x = mx.einsum("...kic,...kjc->...ijc", a, b)
-        x = self.linear_out(self.ln_out(x))
-        x = x * mx.sigmoid(self.gate_out(z_in))
-        return x
-
-
-class TriangleAttention(nn.Module):
-    """Simplified triangle attention (starting or ending node).
-
-    Self-attention along rows or columns of the pair representation,
-    with pair bias from the other dimension.
-
-    Args:
-        c_z: pair embedding dim.
-        n_head: number of attention heads.
-        starting: if True, attend along rows (starting node);
-                  if False, attend along columns (ending node).
-    """
-
-    def __init__(self, c_z: int, n_head: int = 4, starting: bool = True):
-        super().__init__()
-        self.starting = starting
-        self.n_head = n_head
-        self.d_head = c_z // n_head
-        self.ln = nn.LayerNorm(c_z)
-        self.w_q = LinearNoBias(c_z, c_z)
-        self.w_k = LinearNoBias(c_z, c_z)
-        self.w_v = LinearNoBias(c_z, c_z)
-        self.linear_bias = LinearNoBias(c_z, n_head)
-        self.gate = nn.Linear(c_z, c_z)
-        self.linear_out = LinearNoBias(c_z, c_z)
-
-    def __call__(self, z: mx.array) -> mx.array:
-        # z: [..., N, N, c_z]
-        if not self.starting:
-            # Transpose to attend along columns
-            z = mx.transpose(z, axes=(*range(len(z.shape) - 3), -2, -3, -1))
-
-        z_in = self.ln(z)
-        # Attention along last-but-one dim (rows)
-        # Treat as batch over the second-to-last dim
-        N = z_in.shape[-2]
-        q = self.w_q(z_in).reshape(*z_in.shape[:-1], self.n_head, self.d_head)
-        k = self.w_k(z_in).reshape(*z_in.shape[:-1], self.n_head, self.d_head)
-        v = self.w_v(z_in).reshape(*z_in.shape[:-1], self.n_head, self.d_head)
-
-        # [..., i, j, h, d] -> [..., i, h, j, d]
-        ndim = len(q.shape)
-        perm = list(range(ndim - 4)) + [ndim - 4, ndim - 2, ndim - 3, ndim - 1]
-        q = mx.transpose(q, axes=perm)
-        k = mx.transpose(k, axes=perm)
-        v = mx.transpose(v, axes=perm)
-
-        # Pair bias: [..., i, j, c_z] -> [..., i, j, h] -> [..., i, h, j]
-        # then broadcast for attention over j dimension
-        bias = self.linear_bias(z_in)
-        bias_perm = list(range(len(bias.shape) - 3)) + [
-            len(bias.shape) - 3, len(bias.shape) - 1, len(bias.shape) - 2
-        ]
-        bias = mx.transpose(bias, axes=bias_perm)
-        # bias: [..., i, h, j] -> [..., i, h, 1, j] for SDPA additive mask
-        bias = mx.expand_dims(bias, axis=-2)
-
-        # SDPA requires rank 4. Fold batch dims + i into flat batch.
-        # After perm, q is [..., i, h, j, d] — last 4 dims are (i, h, j, d)
-        # We want to fold everything up to and including i into flat_B
-        # So batch_shape = shape[:-3] would give [..., i] — but we need [...] only
-        # i is at position -4
-        I = q.shape[-4]
-        batch_shape = q.shape[:-4]
-        flat_B = 1
-        for s in batch_shape:
-            flat_B *= s
-        flat_B *= I
-
-        q_4d = q.reshape(flat_B, self.n_head, N, self.d_head)
-        k_4d = k.reshape(flat_B, self.n_head, N, self.d_head)
-        v_4d = v.reshape(flat_B, self.n_head, N, self.d_head)
-        bias_4d = bias.reshape(flat_B, self.n_head, -1, N) if bias is not None else None
-
-        scale = math.sqrt(self.d_head)
-        attn = mx.fast.scaled_dot_product_attention(
-            q_4d, k_4d, v_4d, scale=1.0 / scale, mask=bias_4d
-        )
-
-        # Unfold: (flat_B, H, J, D) -> [..., I, H, J, D] -> [..., I, J, H, D]
-        attn = attn.reshape(*batch_shape, I, self.n_head, N, self.d_head)
-        attn = mx.transpose(attn, axes=perm)
-        attn = attn.reshape(*attn.shape[:-2], z_in.shape[-1])
-
-        g = mx.sigmoid(self.gate(z_in))
-        out = self.linear_out(g * attn)
-
-        if not self.starting:
-            out = mx.transpose(out, axes=(*range(len(out.shape) - 3), -2, -3, -1))
-
-        return out
-
-
-class PairformerBlock(nn.Module):
-    """Single Pairformer block with triangle updates and attention.
-
-    Simplified version for the confidence head:
-      z = z + TriMul_out(z)
-      z = z + TriMul_in(z)
-      z = z + TriAttn_start(z)
-      z = z + TriAttn_end(z)
-      z = z + Transition(z)
-      s = s + Transition(s)  (single track)
-    """
-
-    def __init__(self, c_z: int = 128, c_s: int = 384, n_head: int = 4):
-        super().__init__()
-        self.tri_mul_out = TriangleMultiplicationOutgoing(c_z)
-        self.tri_mul_in = TriangleMultiplicationIncoming(c_z)
-        self.tri_attn_start = TriangleAttention(c_z, n_head, starting=True)
-        self.tri_attn_end = TriangleAttention(c_z, n_head, starting=False)
-        self.transition_z = SwiGLUTransition(c_z, n=2)
-        self.transition_s = SwiGLUTransition(c_s, n=2)
-
-    def __call__(
-        self, s: mx.array, z: mx.array
-    ) -> tuple[mx.array, mx.array]:
-        z = z + self.tri_mul_out(z)
-        z = z + self.tri_mul_in(z)
-        z = z + self.tri_attn_start(z)
-        z = z + self.tri_attn_end(z)
-        z = z + self.transition_z(z)
-        s = s + self.transition_s(s)
-        return s, z
-
-
-class PairformerStack(nn.Module):
-    """Stack of PairformerBlocks.
-
-    Args:
-        c_z: pair embedding dim.
-        c_s: single embedding dim.
-        n_blocks: number of Pairformer blocks.
-        n_head: number of attention heads per block.
-    """
-
-    def __init__(
-        self,
-        c_z: int = 128,
-        c_s: int = 384,
-        n_blocks: int = 4,
-        n_head: int = 4,
-    ):
-        super().__init__()
-        self.blocks = [
-            PairformerBlock(c_z=c_z, c_s=c_s, n_head=n_head)
-            for _ in range(n_blocks)
-        ]
-
-    def __call__(
-        self, s: mx.array, z: mx.array
-    ) -> tuple[mx.array, mx.array]:
-        for block in self.blocks:
-            s, z = block(s, z)
-        return s, z
+from rfantibody.protenix.mlx.embedders import LinearNoBias
+from rfantibody.protenix.mlx.pairformer import PairformerStack
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +42,9 @@ class ConfidenceHead(nn.Module):
          - resolution: per-atom resolved/unresolved (2 bins)
       4. Compute pTM/ipTM from PAE logits
 
+    Uses the SAME PairformerStack as the trunk (same architecture, different
+    weights) to match the Protenix checkpoint structure.
+
     Args:
         c_s: single embedding dim.
         c_z: pair embedding dim.
@@ -266,7 +54,8 @@ class ConfidenceHead(nn.Module):
         b_pae: number of PAE bins.
         b_pde: number of PDE bins.
         b_resolved: number of resolution bins.
-        n_head: number of attention heads per Pairformer block.
+        n_head_pair: number of pair attention heads.
+        n_head_single: number of single attention heads.
         distance_bin_start: start of distance binning range.
         distance_bin_end: end of distance binning range.
         distance_bin_step: step size for distance bins.
@@ -282,7 +71,8 @@ class ConfidenceHead(nn.Module):
         b_pae: int = 64,
         b_pde: int = 64,
         b_resolved: int = 2,
-        n_head: int = 4,
+        n_head_pair: int = 4,
+        n_head_single: int = 16,
         distance_bin_start: float = 3.25,
         distance_bin_end: float = 52.0,
         distance_bin_step: float = 1.25,
@@ -317,9 +107,16 @@ class ConfidenceHead(nn.Module):
         # Input normalization
         self.ln_s_trunk = nn.LayerNorm(c_s)
 
-        # Pairformer stack
-        self.pairformer = PairformerStack(
-            c_z=c_z, c_s=c_s, n_blocks=n_blocks, n_head=n_head
+        # Pairformer stack -- SAME architecture as trunk
+        # (uses the same PairformerBlock with tri_mul, tri_att, attention_pair_bias, transitions)
+        self.pairformer_stack = PairformerStack(
+            n_blocks=n_blocks,
+            c_z=c_z,
+            c_s=c_s,
+            n_head_pair=n_head_pair,
+            n_head_single=n_head_single,
+            n_transition=4,  # matches checkpoint expansion factor
+            eval_stride=n_blocks,  # no intermediate eval for small stack
         )
 
         # Output heads (zero-initialized)
@@ -331,7 +128,7 @@ class ConfidenceHead(nn.Module):
 
         self.ln_plddt = nn.LayerNorm(c_s)
         self.linear_plddt = LinearNoBias(c_s, b_plddt)
-        # Multi-head pLDDT weight: [n_atom_type, c_s, b_plddt] — loaded from checkpoint
+        # Multi-head pLDDT weight: [n_atom_type, c_s, b_plddt] -- loaded from checkpoint
         self.plddt_weight = mx.zeros((24, c_s, b_plddt))
 
         self.ln_resolved = nn.LayerNorm(c_s)
@@ -367,7 +164,7 @@ class ConfidenceHead(nn.Module):
         s_inputs: mx.array,
         s_trunk: mx.array,
         z_trunk: mx.array,
-    ) -> dict[str, mx.array]:
+    ) -> dict:
         """
         Args:
             x_pred: [..., N_atoms, 3] predicted coordinates
@@ -404,7 +201,7 @@ class ConfidenceHead(nn.Module):
         z = z + self.linear_d_raw(mx.expand_dims(distances, axis=-1))
 
         # Pairformer
-        s, z = self.pairformer(s, z)
+        s, z = self.pairformer_stack(s, z)
 
         # --- Output heads ---
         # PAE: per-pair aligned error

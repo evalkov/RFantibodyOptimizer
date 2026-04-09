@@ -7,6 +7,7 @@ for integration with PyTorch-based pipelines.
 
 Follows the same pattern as rfantibody.rf2.mlx.model_wrapper.MLXRF2Wrapper.
 """
+from __future__ import annotations
 
 import logging
 

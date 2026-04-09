@@ -7,6 +7,7 @@ Implements:
   - TriangleAttentionStartingNode   (AF3 Algorithm 13)
   - TriangleAttentionEndingNode     (AF3 Algorithm 14)
 """
+from __future__ import annotations
 
 import math
 

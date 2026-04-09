@@ -1,3 +1,4 @@
+from __future__ import annotations
 # MLX backend for Protenix-Mini-Flow on Apple Silicon
 
 from rfantibody.protenix.mlx.embedders import (

@@ -4,6 +4,7 @@ Attention modules for Protenix-Mini-Flow, ported to MLX.
 Implements:
   - AttentionPairBias (AF3 Algorithm 24): self-attention with additive pair bias
 """
+from __future__ import annotations
 
 import math
 

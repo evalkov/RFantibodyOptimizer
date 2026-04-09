@@ -7,6 +7,7 @@ Implements:
   - PairformerBlock   (AF3 Algorithm 17 lines 2-8)
   - PairformerStack   (AF3 Algorithm 17)
 """
+from __future__ import annotations
 
 import mlx.core as mx
 import mlx.nn as nn

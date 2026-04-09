@@ -10,6 +10,7 @@ Handles:
 
 Follows the same pattern as rfantibody.rf2.mlx.weight_converter.
 """
+from __future__ import annotations
 
 import logging
 import re
@@ -65,8 +66,11 @@ def _should_skip(key: str) -> bool:
 # Trunk pairformer block remapping (within a block suffix)
 # ---------------------------------------------------------------------------
 
-def _remap_trunk_block_suffix(suffix: str) -> str | None:
-    """Map a suffix within pairformer_stack.blocks.N.<suffix>."""
+def _remap_trunk_block_suffix(suffix: str) -> str:
+    """Map a suffix within pairformer_stack.blocks.N.<suffix>.
+
+    Returns mapped suffix, or None to skip, or '__TRANSITION__' for deferred.
+    """
 
     # --- AttentionPairBias ---
     if suffix.startswith('attention_pair_bias.'):
@@ -123,68 +127,10 @@ def _remap_trunk_block_suffix(suffix: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Confidence head pairformer block remapping
-# ---------------------------------------------------------------------------
-
-def _remap_confidence_block_suffix(suffix: str) -> str | None:
-    """Map a suffix within confidence_head.pairformer_stack.blocks.N.<suffix>.
-
-    MLX confidence pairformer uses simplified classes with different naming.
-    """
-    # AttentionPairBias -- not in simplified confidence pairformer
-    if suffix.startswith('attention_pair_bias.'):
-        return None
-
-    # Triangle multiplication
-    if suffix.startswith('tri_mul_out.') or suffix.startswith('tri_mul_in.'):
-        prefix, rest = suffix.split('.', 1)
-        m = {
-            'layer_norm_in.weight': 'ln.weight',
-            'layer_norm_in.bias': 'ln.bias',
-            'layer_norm_out.weight': 'ln_out.weight',
-            'layer_norm_out.bias': 'ln_out.bias',
-            'linear_a_p.weight': 'linear_a.weight',
-            'linear_b_p.weight': 'linear_b.weight',
-            'linear_a_g.weight': 'gate_a.weight',
-            'linear_b_g.weight': 'gate_b.weight',
-            'linear_z.weight': 'linear_out.weight',
-            'linear_g.weight': 'gate_out.weight',
-        }
-        mapped = m.get(rest)
-        return f'{prefix}.{mapped}' if mapped else None
-
-    # Triangle attention
-    if suffix.startswith('tri_att_start.') or suffix.startswith('tri_att_end.'):
-        prefix, rest = suffix.split('.', 1)
-        mlx_prefix = prefix.replace('tri_att_', 'tri_attn_')
-        if rest.startswith('layer_norm.'):
-            return f'{mlx_prefix}.ln.{rest[len("layer_norm."):]}'
-        if rest == 'linear.weight':
-            return f'{mlx_prefix}.linear_bias.weight'
-        if rest.startswith('mha.'):
-            m = {
-                'mha.linear_q.weight': 'w_q.weight',
-                'mha.linear_k.weight': 'w_k.weight',
-                'mha.linear_v.weight': 'w_v.weight',
-                'mha.linear_g.weight': 'gate.weight',  # MLX uses nn.Linear (with bias)
-                'mha.linear_o.weight': 'linear_out.weight',
-            }
-            mapped = m.get(rest)
-            return f'{mlx_prefix}.{mapped}' if mapped else None
-        return None
-
-    # Transitions -- need weight combining
-    if suffix.startswith('pair_transition.') or suffix.startswith('single_transition.'):
-        return '__TRANSITION__'
-
-    return None
-
-
-# ---------------------------------------------------------------------------
 # Diffusion transformer block remapping
 # ---------------------------------------------------------------------------
 
-def _remap_diffusion_block_suffix(suffix: str) -> str | None:
+def _remap_diffusion_block_suffix(suffix: str) -> str:
     """Map a suffix within diffusion_module.diffusion_transformer.blocks.N.<suffix>."""
 
     # --- AttentionPairBias ---
@@ -194,22 +140,29 @@ def _remap_diffusion_block_suffix(suffix: str) -> str | None:
         # AdaLN (needs combining)
         if rest.startswith('layernorm_a.'):
             return '__ADALN_ATTN__'
+
+        # layernorm_z: maps to attention block (pair norm before bias)
         if rest == 'layernorm_z.weight':
-            return None
+            return 'attention.layer_norm_z.weight'
+
         if rest == 'linear_nobias_z.weight':
             return 'attention.linear_bias.weight'
+
         if rest.startswith('attention.'):
             m = {
                 'attention.linear_q.weight': 'attention.w_q.weight',
-                'attention.linear_q.bias': None,
+                'attention.linear_q.bias': None,  # no bias in MLX w_q
                 'attention.linear_k.weight': 'attention.w_k.weight',
                 'attention.linear_v.weight': 'attention.w_v.weight',
                 'attention.linear_g.weight': 'attention.linear_gate.weight',
                 'attention.linear_o.weight': 'attention.linear_out.weight',
             }
             return m.get(rest)
+
+        # linear_a_last: skip (not in simplified MLX model)
         if rest.startswith('linear_a_last.'):
             return None
+
         return None
 
     # --- ConditionedTransitionBlock ---
@@ -234,20 +187,29 @@ def _remap_diffusion_block_suffix(suffix: str) -> str | None:
 # Diffusion conditioning remapping
 # ---------------------------------------------------------------------------
 
-def _remap_conditioning_suffix(suffix: str) -> str | None:
+def _remap_conditioning_suffix(suffix: str) -> str:
     """Map a suffix within diffusion_module.diffusion_conditioning.<suffix>."""
     if suffix == 'fourier_embedding.w':
         return 'fourier_emb.w'
     if suffix == 'fourier_embedding.b':
+        return 'fourier_emb.b'
+
+    # Layer norms for conditioning
+    if suffix.startswith('layernorm_n.'):
+        return 'ln_n.' + suffix[len('layernorm_n.'):]
+    if suffix.startswith('layernorm_s.'):
+        return 'ln_s.' + suffix[len('layernorm_s.'):]
+    if suffix.startswith('layernorm_z.'):
+        # z layer norm: skip (not in simplified conditioning)
         return None
-    if suffix in ('layernorm_n.weight', 'layernorm_s.weight', 'layernorm_z.weight'):
-        return None
+
     if suffix == 'linear_no_bias_n.weight':
         return 'linear_n.weight'
     if suffix == 'linear_no_bias_s.weight':
         return 'linear_s.weight'
     if suffix == 'linear_no_bias_z.weight':
         return None
+
     if suffix.startswith('relpe.'):
         return None
 
@@ -274,7 +236,7 @@ def _remap_conditioning_suffix(suffix: str) -> str | None:
 # Main remapping function
 # ---------------------------------------------------------------------------
 
-def _remap_key(key: str) -> str | None:
+def _remap_key(key: str) -> str:
     """Remap a single checkpoint key (module. stripped) to MLX model key.
 
     Returns MLX key, or None to skip, or a __MARKER__ for combined weights.
@@ -307,9 +269,6 @@ def _remap_key(key: str) -> str | None:
     # Distogram
     if key.startswith('distogram_head.linear.'):
         return 'linear_distogram.' + key[len('distogram_head.linear.'):]
-
-    # Distogram layer norm -- not in checkpoint, only in MLX
-    # (it's a new addition, will just keep random init)
 
     # --- Pairformer stack (trunk) ---
     m = re.match(r'pairformer_stack\.blocks\.(\d+)\.(.*)', key)
@@ -352,16 +311,16 @@ def _remap_key(key: str) -> str | None:
             if rest.startswith(ckpt_pref):
                 return 'confidence_head.' + mlx_pref + rest[len(ckpt_pref):]
 
-        # Confidence pairformer blocks
+        # Confidence pairformer blocks -- SAME structure as trunk
         bm = re.match(r'pairformer_stack\.blocks\.(\d+)\.(.*)', rest)
         if bm:
             block_num, suffix = bm.group(1), bm.group(2)
-            mapped = _remap_confidence_block_suffix(suffix)
+            mapped = _remap_trunk_block_suffix(suffix)
             if mapped is None:
                 return None
             if mapped == '__TRANSITION__':
-                return mapped
-            return f'confidence_head.pairformer.blocks.{block_num}.{mapped}'
+                return '__CONF_TRANSITION__'  # handled in combining pass
+            return f'confidence_head.pairformer_stack.blocks.{block_num}.{mapped}'
 
         # Buffers
         if rest in ('lower_bins', 'upper_bins'):
@@ -453,7 +412,8 @@ def _combine_trunk_transitions(raw_sd: dict, remapped: dict):
 def _combine_confidence_transitions(raw_sd: dict, remapped: dict):
     """Combine split SwiGLU transitions for confidence pairformer blocks.
 
-    Confidence pairformer uses SwiGLUTransition (no LN, separate gate/value/out).
+    Confidence pairformer now uses the SAME Transition class as trunk
+    (with layer_norm + linear_in/linear_out), so we combine identically.
     """
     pattern = re.compile(
         r'confidence_head\.pairformer_stack\.blocks\.(\d+)\.(pair_transition|single_transition)\.(.*)'
@@ -469,16 +429,25 @@ def _combine_confidence_transitions(raw_sd: dict, remapped: dict):
             groups[gkey][rest] = raw_sd[key]
 
     for (block_num, trans_name), params in groups.items():
-        # Map pair_transition -> transition_z, single_transition -> transition_s
-        mlx_trans = 'transition_z' if trans_name == 'pair_transition' else 'transition_s'
-        mlx_prefix = f'confidence_head.pairformer.blocks.{block_num}.{mlx_trans}.'
+        mlx_prefix = f'confidence_head.pairformer_stack.blocks.{block_num}.{trans_name}.'
 
-        if 'linear_no_bias_a.weight' in params:
-            remapped[mlx_prefix + 'linear_gate.weight'] = params['linear_no_bias_a.weight']
-        if 'linear_no_bias_b.weight' in params:
-            remapped[mlx_prefix + 'linear_value.weight'] = params['linear_no_bias_b.weight']
+        # Combine gate + value -> linear_in
+        if 'linear_no_bias_a.weight' in params and 'linear_no_bias_b.weight' in params:
+            combined = np.concatenate(
+                [params['linear_no_bias_a.weight'], params['linear_no_bias_b.weight']],
+                axis=0,
+            )
+            remapped[mlx_prefix + 'linear_in.weight'] = combined
+
+        # Output
         if 'linear_no_bias.weight' in params:
             remapped[mlx_prefix + 'linear_out.weight'] = params['linear_no_bias.weight']
+
+        # Layer norm
+        if 'layernorm1.weight' in params:
+            remapped[mlx_prefix + 'layer_norm.weight'] = params['layernorm1.weight']
+        if 'layernorm1.bias' in params:
+            remapped[mlx_prefix + 'layer_norm.bias'] = params['layernorm1.bias']
 
 
 def _combine_diffusion_adaln(raw_sd: dict, remapped: dict):
@@ -694,18 +663,20 @@ def load_checkpoint_to_mlx(ckpt_path: str, model_params=None):
     missing_in_ckpt = model_keys - ckpt_keys
 
     if missing_in_model:
-        _log.warning(f'{len(missing_in_model)} checkpoint keys not in model:')
+        import sys
+        print(f'{len(missing_in_model)} checkpoint keys not in model:', file=sys.stderr)
         for k in sorted(missing_in_model)[:30]:
-            _log.warning(f'  EXTRA: {k}')
+            print(f'  EXTRA: {k}', file=sys.stderr)
         if len(missing_in_model) > 30:
-            _log.warning(f'  ... and {len(missing_in_model) - 30} more')
+            print(f'  ... and {len(missing_in_model) - 30} more', file=sys.stderr)
 
     if missing_in_ckpt:
-        _log.warning(f'{len(missing_in_ckpt)} model keys not in checkpoint:')
+        import sys
+        print(f'{len(missing_in_ckpt)} model keys not in checkpoint:', file=sys.stderr)
         for k in sorted(missing_in_ckpt)[:30]:
-            _log.warning(f'  MISSING: {k}')
+            print(f'  MISSING: {k}', file=sys.stderr)
         if len(missing_in_ckpt) > 30:
-            _log.warning(f'  ... and {len(missing_in_ckpt) - 30} more')
+            print(f'  ... and {len(missing_in_ckpt) - 30} more', file=sys.stderr)
 
     matched = ckpt_keys & model_keys
     _log.info(
@@ -714,8 +685,35 @@ def load_checkpoint_to_mlx(ckpt_path: str, model_params=None):
         f'{len(missing_in_model)} extra in ckpt'
     )
 
-    # Load weights (only keys that exist in model)
-    loadable = {k: mx.array(v) for k, v in remapped.items() if k in model_keys}
+    # Shape validation
+    shape_mismatches = []
+    for k in sorted(matched):
+        ckpt_shape = list(remapped[k].shape)
+        mlx_shape = list(model_keys)  # need actual shapes
+        # Get model param shape
+    model_params_dict = dict(nn.utils.tree_flatten(model.parameters()))
+    for k in sorted(matched):
+        ckpt_shape = list(remapped[k].shape)
+        mlx_shape = list(model_params_dict[k].shape)
+        if ckpt_shape != mlx_shape:
+            shape_mismatches.append((k, ckpt_shape, mlx_shape))
+
+    if shape_mismatches:
+        import sys
+        print(f'{len(shape_mismatches)} shape mismatches:', file=sys.stderr)
+        for k, cs, ms in shape_mismatches:
+            print(f'  {k}: ckpt={cs} vs mlx={ms}', file=sys.stderr)
+
+    # Load weights (only keys that exist in model AND have matching shapes)
+    loadable = {}
+    for k, v in remapped.items():
+        if k in model_keys:
+            mlx_shape = list(model_params_dict[k].shape)
+            if list(v.shape) == mlx_shape:
+                loadable[k] = mx.array(v)
+            else:
+                _log.warning(f'Skipping {k} due to shape mismatch: {list(v.shape)} vs {mlx_shape}')
+
     _log.info(f'Loading {len(loadable)} parameters into model')
     _set_params_from_flat(model, loadable)
     mx.eval(model.parameters())
