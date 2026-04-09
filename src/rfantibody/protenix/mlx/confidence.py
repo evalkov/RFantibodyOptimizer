@@ -141,10 +141,12 @@ class TriangleAttention(nn.Module):
         bias = mx.expand_dims(bias, axis=-2)
 
         # SDPA requires rank 4. Fold batch dims + i into flat batch.
-        batch_shape = q.shape[:-3]  # everything before (i, h, j, d)
-        I = q.shape[-3]  # i dimension (after permute, this is the row dim)
-        # Actually after permute q is [..., i, h, j, d] so -4=i, -3=h, -2=j, -1=d
-        I = q.shape[len(batch_shape)]
+        # After perm, q is [..., i, h, j, d] — last 4 dims are (i, h, j, d)
+        # We want to fold everything up to and including i into flat_B
+        # So batch_shape = shape[:-3] would give [..., i] — but we need [...] only
+        # i is at position -4
+        I = q.shape[-4]
+        batch_shape = q.shape[:-4]
         flat_B = 1
         for s in batch_shape:
             flat_B *= s
@@ -160,7 +162,7 @@ class TriangleAttention(nn.Module):
             q_4d, k_4d, v_4d, scale=1.0 / scale, mask=bias_4d
         )
 
-        # Unfold: (flat_B, h, j, d) -> [..., i, h, j, d] -> [..., i, j, h, d]
+        # Unfold: (flat_B, H, J, D) -> [..., I, H, J, D] -> [..., I, J, H, D]
         attn = attn.reshape(*batch_shape, I, self.n_head, N, self.d_head)
         attn = mx.transpose(attn, axes=perm)
         attn = attn.reshape(*attn.shape[:-2], z_in.shape[-1])
