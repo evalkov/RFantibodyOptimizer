@@ -139,11 +139,17 @@ class ProtenixMiniModule(nn.Module):
         # --- 3. Diffusion module ---
         self.diffusion_module = DiffusionModule(
             sigma_data=sigma_data,
+            c_atom=128,
+            c_atompair=16,
             c_token=c_token,
             c_s=c_s,
             c_z=c_z,
             c_s_inputs=c_s_inputs,
+            n_atom_encoder_blocks=1,
             n_transformer_blocks=n_diffusion_blocks,
+            n_atom_decoder_blocks=1,
+            n_head=n_head_single,
+            n_atom_head=n_head_pair,
         )
 
         # --- 4. Confidence head ---
@@ -251,6 +257,9 @@ class ProtenixMiniModule(nn.Module):
         n_cycle: int = 1,
         run_confidence: bool = True,
         coordinates_override: mx.array | None = None,
+        ref_pos: mx.array | None = None,
+        ref_charge: mx.array | None = None,
+        ref_mask: mx.array | None = None,
     ) -> dict[str, mx.array]:
         """Full forward pass: embed -> trunk -> diffuse -> confidence.
 
@@ -267,6 +276,11 @@ class ProtenixMiniModule(nn.Module):
             esm_embeddings: [B, N, esm_dim] ESM embeddings (optional)
             n_cycle: recycling cycles (default 1)
             run_confidence: whether to run confidence head (default True)
+            coordinates_override: [B, N, 3] override coordinates (optional,
+                bypasses diffusion -- useful for confidence-only mode)
+            ref_pos: [B, N, 3] reference atom positions (optional)
+            ref_charge: [B, N] reference atom charges (optional)
+            ref_mask: [B, N] atom mask (optional, defaults to ones)
 
         Returns:
             dict with keys:
@@ -305,8 +319,7 @@ class ProtenixMiniModule(nn.Module):
         # 3. Run diffusion (sample coordinates)
         if coordinates_override is not None:
             # Use provided coordinates (e.g. from RFdiffusion backbone)
-            # instead of running diffusion — useful when atom attention
-            # encoder/decoder weights are not available
+            # Useful for confidence-only mode
             coordinates = coordinates_override
         else:
             sampler = self._get_sampler()
@@ -317,6 +330,9 @@ class ProtenixMiniModule(nn.Module):
                 s_inputs=s_inputs,
                 s_trunk=s_trunk,
                 z_trunk=z_trunk,
+                ref_pos=ref_pos,
+                ref_charge=ref_charge,
+                ref_mask=ref_mask,
             )
 
         result = {

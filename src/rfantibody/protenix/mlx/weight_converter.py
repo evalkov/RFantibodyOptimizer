@@ -49,8 +49,6 @@ _SKIP_PREFIXES = (
     'msa_module.',
     'msa_linear_no_bias_m.',
     'msa_linear_no_bias_s.',
-    'diffusion_module.atom_attention_encoder.',
-    'diffusion_module.atom_attention_decoder.',
 )
 
 
@@ -179,6 +177,157 @@ def _remap_diffusion_block_suffix(suffix: str) -> str:
             'linear_s.bias': None,
         }
         return m.get(rest)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Atom attention encoder/decoder remapping
+# ---------------------------------------------------------------------------
+
+def _remap_atom_attention_block_suffix(suffix: str) -> str:
+    """Map a suffix within atom_transformer.diffusion_transformer.blocks.N.<suffix>.
+
+    The atom attention transformers use cross_attention_mode=True which means
+    they have both layernorm_a and layernorm_kv (AtomAdaptiveLayerNorm).
+    They also store weights differently from the main diffusion transformer.
+
+    Returns mapped suffix or None to skip.
+    """
+    # --- AttentionPairBias ---
+    if suffix.startswith('attention_pair_bias.'):
+        rest = suffix[len('attention_pair_bias.'):]
+
+        # AdaLN for query (layernorm_a) -- direct mapping
+        if rest.startswith('layernorm_a.'):
+            return 'attention_pair_bias.layernorm_a.' + rest[len('layernorm_a.'):]
+
+        # AdaLN for key/value (layernorm_kv) -- direct mapping
+        if rest.startswith('layernorm_kv.'):
+            return 'attention_pair_bias.layernorm_kv.' + rest[len('layernorm_kv.'):]
+
+        # Pair bias
+        if rest == 'layernorm_z.weight':
+            return 'attention_pair_bias.layernorm_z.weight'
+        if rest == 'linear_nobias_z.weight':
+            return 'attention_pair_bias.linear_nobias_z.weight'
+
+        # Attention projections
+        if rest.startswith('attention.'):
+            m = {
+                'attention.linear_q.weight': 'attention_pair_bias.attention.linear_q.weight',
+                'attention.linear_q.bias': 'attention_pair_bias.attention.linear_q.bias',
+                'attention.linear_k.weight': 'attention_pair_bias.attention.linear_k.weight',
+                'attention.linear_v.weight': 'attention_pair_bias.attention.linear_v.weight',
+                'attention.linear_g.weight': 'attention_pair_bias.attention.linear_g.weight',
+                'attention.linear_o.weight': 'attention_pair_bias.attention.linear_o.weight',
+            }
+            return m.get(rest)
+
+        # Output gating
+        if rest == 'linear_a_last.weight':
+            return 'attention_pair_bias.linear_a_last.weight'
+        if rest == 'linear_a_last.bias':
+            return 'attention_pair_bias.linear_a_last.bias'
+
+        return None
+
+    # --- ConditionedTransitionBlock ---
+    if suffix.startswith('conditioned_transition_block.'):
+        rest = suffix[len('conditioned_transition_block.'):]
+
+        # AdaLN -- direct mapping
+        if rest.startswith('adaln.'):
+            return 'conditioned_transition_block.adaln.' + rest[len('adaln.'):]
+
+        # SwiGLU projections
+        m = {
+            'linear_nobias_a1.weight': 'conditioned_transition_block.linear_nobias_a1.weight',
+            'linear_nobias_a2.weight': 'conditioned_transition_block.linear_nobias_a2.weight',
+            'linear_nobias_b.weight': 'conditioned_transition_block.linear_nobias_b.weight',
+            'linear_s.weight': 'conditioned_transition_block.linear_s.weight',
+            'linear_s.bias': 'conditioned_transition_block.linear_s.bias',
+        }
+        return m.get(rest)
+
+    return None
+
+
+def _remap_atom_attention_encoder(rest: str) -> str:
+    """Map a suffix within diffusion_module.atom_attention_encoder.<rest>.
+
+    Returns MLX key suffix (relative to diffusion_module.atom_attention_encoder) or None.
+    """
+    # Direct linear mappings
+    direct_linears = [
+        'linear_no_bias_ref_pos.weight',
+        'linear_no_bias_ref_charge.weight',
+        'linear_no_bias_f.weight',
+        'linear_no_bias_d.weight',
+        'linear_no_bias_invd.weight',
+        'linear_no_bias_v.weight',
+        'linear_no_bias_s.weight',
+        'linear_no_bias_z.weight',
+        'linear_no_bias_r.weight',
+        'linear_no_bias_cl.weight',
+        'linear_no_bias_cm.weight',
+        'linear_no_bias_q.weight',
+    ]
+    if rest in direct_linears:
+        return rest
+
+    # Layer norms
+    if rest.startswith('layernorm_s.'):
+        return rest
+    if rest.startswith('layernorm_z.'):
+        return rest
+
+    # Small MLP: small_mlp.{1,3,5}.weight -> small_mlp.layer_{1,3,5}.weight
+    import re as _re
+    sm = _re.match(r'small_mlp\.(\d+)\.weight', rest)
+    if sm:
+        idx = sm.group(1)
+        return f'small_mlp.layer_{idx}.weight'
+
+    # Atom transformer blocks
+    bm = _re.match(r'atom_transformer\.diffusion_transformer\.blocks\.(\d+)\.(.*)', rest)
+    if bm:
+        block_num, suffix = bm.group(1), bm.group(2)
+        mapped = _remap_atom_attention_block_suffix(suffix)
+        if mapped is None:
+            return None
+        return f'atom_transformer.diffusion_transformer.blocks.{block_num}.{mapped}'
+
+    return None
+
+
+def _remap_atom_attention_decoder(rest: str) -> str:
+    """Map a suffix within diffusion_module.atom_attention_decoder.<rest>.
+
+    Returns MLX key suffix (relative to diffusion_module.atom_attention_decoder) or None.
+    """
+    import re as _re
+
+    # Direct linear mappings
+    direct = [
+        'linear_no_bias_a.weight',
+        'linear_no_bias_out.weight',
+    ]
+    if rest in direct:
+        return rest
+
+    # Layer norm
+    if rest.startswith('layernorm_q.'):
+        return rest
+
+    # Atom transformer blocks
+    bm = _re.match(r'atom_transformer\.diffusion_transformer\.blocks\.(\d+)\.(.*)', rest)
+    if bm:
+        block_num, suffix = bm.group(1), bm.group(2)
+        mapped = _remap_atom_attention_block_suffix(suffix)
+        if mapped is None:
+            return None
+        return f'atom_transformer.diffusion_transformer.blocks.{block_num}.{mapped}'
 
     return None
 
@@ -357,6 +506,22 @@ def _remap_key(key: str) -> str:
             if mapped.startswith('__ADALN'):
                 return mapped  # handled in combining
             return f'diffusion_module.transformer_blocks.{block_num}.{mapped}'
+
+        # Atom attention encoder
+        if rest.startswith('atom_attention_encoder.'):
+            enc_rest = rest[len('atom_attention_encoder.'):]
+            mapped = _remap_atom_attention_encoder(enc_rest)
+            if mapped is None:
+                return None
+            return f'diffusion_module.atom_attention_encoder.{mapped}'
+
+        # Atom attention decoder
+        if rest.startswith('atom_attention_decoder.'):
+            dec_rest = rest[len('atom_attention_decoder.'):]
+            mapped = _remap_atom_attention_decoder(dec_rest)
+            if mapped is None:
+                return None
+            return f'diffusion_module.atom_attention_decoder.{mapped}'
 
         return None
 

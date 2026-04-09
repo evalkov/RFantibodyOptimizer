@@ -5,13 +5,14 @@ Implements:
   - FourierEmbedding: noise level embedding (AF3 Algorithm 21, line 8)
   - DiffusionConditioning: combines noise + trunk conditioning (Algorithm 21)
   - DiffusionTransformerBlock: self-attention + transition (Algorithm 23)
+  - AtomAttentionEncoder: atom-level encoder with transformer (Algorithm 5)
+  - AtomAttentionDecoder: atom-level decoder with transformer (Algorithm 6)
   - DiffusionModule: full diffusion network (Algorithm 20)
   - FlowMatchingODESampler: 5-step ODE sampler with TeaCache hook
 
 Ported from:
   - Protenix  (protenix/model/modules/diffusion.py)
-  - OpenFold3 (openfold3/core/model/layers/diffusion_transformer.py)
-  - OpenFold3 (openfold3/core/model/layers/diffusion_conditioning.py)
+  - Protenix  (protenix/model/modules/transformer.py)
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ class FourierEmbedding(nn.Module):
         """
         # x: [...] -> [..., 1]
         x = mx.expand_dims(x, axis=-1)
-        # cos(2π(x·w + b)) — cosine-only, matching Protenix
+        # cos(2pi(x*w + b)) -- cosine-only, matching Protenix
         return mx.cos(2.0 * math.pi * (x * self.w + self.b))
 
 
@@ -393,16 +394,559 @@ class DiffusionTransformerBlock(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Atom-level Attention Modules (Algorithms 5, 6, 7)
+# ---------------------------------------------------------------------------
+
+class AtomAdaptiveLayerNorm(nn.Module):
+    """Protenix-style AdaptiveLayerNorm used in atom attention.
+
+    The Protenix checkpoint stores:
+      - layernorm_s.weight: [c_a] for the LN itself
+      - linear_nobias_s.weight: [c_a, c_s] for scale (no bias)
+      - linear_s.weight: [c_a, c_s] + linear_s.bias: [c_a] for shift
+
+    This differs from the main diffusion AdaLN which combines them.
+    """
+
+    def __init__(self, c_a: int, c_s: int):
+        super().__init__()
+        self.layernorm_s = nn.LayerNorm(c_a, affine=True)
+        self.linear_nobias_s = LinearNoBias(c_s, c_a)
+        self.linear_s = nn.Linear(c_s, c_a)
+
+    def __call__(self, a: mx.array, s: mx.array) -> mx.array:
+        a_norm = self.layernorm_s(a)
+        scale = self.linear_nobias_s(s)
+        shift = self.linear_s(s)
+        return a_norm * (1 + scale) + shift
+
+
+class AtomAttentionPairBias(nn.Module):
+    """AttentionPairBias for atom-level transformers.
+
+    Matches the Protenix checkpoint structure with:
+      - layernorm_a (AtomAdaptiveLayerNorm) for query
+      - layernorm_kv (AtomAdaptiveLayerNorm) for key/value (cross_attention_mode)
+      - linear_a_last: gating by single embedding s
+      - Standard attention: linear_q (with bias), linear_k, linear_v, linear_g, linear_o
+      - layernorm_z + linear_nobias_z for pair bias
+
+    Args:
+        c_a: atom embedding dim (128).
+        c_s: atom single embedding dim (128 = c_atom).
+        c_z: atom pair dim (16 = c_atompair).
+        n_heads: number of attention heads (4).
+    """
+
+    def __init__(self, c_a: int, c_s: int, c_z: int, n_heads: int):
+        super().__init__()
+        self.c_a = c_a
+        self.n_heads = n_heads
+        self.d_head = c_a // n_heads
+        assert c_a % n_heads == 0
+
+        # AdaLN for query and key/value (cross_attention_mode=True)
+        self.layernorm_a = AtomAdaptiveLayerNorm(c_a, c_s)
+        self.layernorm_kv = AtomAdaptiveLayerNorm(c_a, c_s)
+
+        # Attention projections (matching Protenix naming)
+        self.attention = _AtomAttention(c_a, n_heads)
+
+        # Pair bias
+        self.layernorm_z = nn.LayerNorm(c_z)
+        self.linear_nobias_z = LinearNoBias(c_z, n_heads)
+
+        # Output gating by single embedding (adaLN-Zero)
+        self.linear_a_last = nn.Linear(c_s, c_a)
+
+    def __call__(
+        self,
+        a: mx.array,
+        s: mx.array,
+        z: mx.array,
+    ) -> mx.array:
+        """
+        Args:
+            a: [..., N, c_a] atom embeddings
+            s: [..., N, c_s] atom single conditioning
+            z: [..., N, N, c_z] atom pair embeddings
+
+        Returns:
+            [..., N, c_a] attention output (residual-ready)
+        """
+        # AdaLN conditioning
+        q_input = self.layernorm_a(a, s)
+        kv_input = self.layernorm_kv(a, s)
+
+        # Pair bias: [..., N, N, c_z] -> [..., N, N, n_heads] -> [..., n_heads, N, N]
+        pair_bias = self.linear_nobias_z(self.layernorm_z(z))
+        pair_bias = mx.transpose(
+            pair_bias,
+            axes=(*range(len(pair_bias.shape) - 3), -1, -3, -2),
+        )
+
+        # Attention with gating
+        out = self.attention(q_input, kv_input, pair_bias)
+
+        # Output gating by single embedding (adaLN-Zero)
+        out = mx.sigmoid(self.linear_a_last(s)) * out
+
+        return out
+
+
+class _AtomAttention(nn.Module):
+    """Low-level multi-head attention for atom transformers.
+
+    Matches Protenix checkpoint structure:
+      - linear_q (with bias), linear_k, linear_v, linear_g, linear_o
+    """
+
+    def __init__(self, c_a: int, n_heads: int):
+        super().__init__()
+        self.c_a = c_a
+        self.n_heads = n_heads
+        self.d_head = c_a // n_heads
+
+        self.linear_q = nn.Linear(c_a, c_a)  # has bias
+        self.linear_k = LinearNoBias(c_a, c_a)
+        self.linear_v = LinearNoBias(c_a, c_a)
+        self.linear_g = LinearNoBias(c_a, c_a)
+        self.linear_o = LinearNoBias(c_a, c_a)
+
+    def __call__(
+        self,
+        q_input: mx.array,
+        kv_input: mx.array,
+        pair_bias: mx.array,
+    ) -> mx.array:
+        """
+        Args:
+            q_input: [..., N, c_a] query input (after AdaLN)
+            kv_input: [..., N, c_a] key/value input (after AdaLN)
+            pair_bias: [..., n_heads, N, N] attention bias
+
+        Returns:
+            [..., N, c_a] attention output
+        """
+        q = self.linear_q(q_input)
+        k = self.linear_k(kv_input)
+        v = self.linear_v(kv_input)
+
+        # Reshape for multi-head: [..., N, n_heads, d_head]
+        q = q.reshape(*q.shape[:-1], self.n_heads, self.d_head)
+        k = k.reshape(*k.shape[:-1], self.n_heads, self.d_head)
+        v = v.reshape(*v.shape[:-1], self.n_heads, self.d_head)
+
+        # Transpose to [..., n_heads, N, d_head]
+        perm = (*range(len(q.shape) - 3), -2, -3, -1)
+        q = mx.transpose(q, axes=perm)
+        k = mx.transpose(k, axes=perm)
+        v = mx.transpose(v, axes=perm)
+
+        # Scaled dot-product attention with pair bias
+        scale = math.sqrt(self.d_head)
+        attn_out = mx.fast.scaled_dot_product_attention(
+            q, k, v, scale=1.0 / scale, mask=pair_bias
+        )
+
+        # Transpose back: [..., n_heads, N, d_head] -> [..., N, n_heads, d_head]
+        perm_back = (*range(len(attn_out.shape) - 3), -2, -3, -1)
+        attn_out = mx.transpose(attn_out, axes=perm_back)
+        attn_out = attn_out.reshape(*attn_out.shape[:-2], self.c_a)
+
+        # Gating
+        gate = mx.sigmoid(self.linear_g(q_input))
+        attn_out = gate * attn_out
+
+        return self.linear_o(attn_out)
+
+
+class AtomConditionedTransitionBlock(nn.Module):
+    """Conditioned transition block for atom transformers (Algorithm 25).
+
+    Matches Protenix checkpoint structure with separate adaln, linear_nobias_a1/a2,
+    linear_nobias_b, and linear_s for output gating.
+
+    Args:
+        c_a: atom embedding dim (128).
+        c_s: atom single embedding dim (128).
+        n: expansion factor (2).
+    """
+
+    def __init__(self, c_a: int, c_s: int, n: int = 2):
+        super().__init__()
+        self.adaln = AtomAdaptiveLayerNorm(c_a, c_s)
+        self.linear_nobias_a1 = LinearNoBias(c_a, n * c_a)
+        self.linear_nobias_a2 = LinearNoBias(c_a, n * c_a)
+        self.linear_nobias_b = LinearNoBias(n * c_a, c_a)
+        self.linear_s = nn.Linear(c_s, c_a)
+
+    def __call__(self, a: mx.array, s: mx.array) -> mx.array:
+        a_normed = self.adaln(a, s)
+        b = nn.silu(self.linear_nobias_a1(a_normed)) * self.linear_nobias_a2(a_normed)
+        # Output gating by single (adaLN-Zero)
+        return mx.sigmoid(self.linear_s(s)) * self.linear_nobias_b(b)
+
+
+class AtomDiffusionTransformerBlock(nn.Module):
+    """Single block of atom-level diffusion transformer.
+
+    Combines AtomAttentionPairBias + AtomConditionedTransitionBlock.
+    """
+
+    def __init__(self, c_a: int, c_s: int, c_z: int, n_heads: int):
+        super().__init__()
+        self.attention_pair_bias = AtomAttentionPairBias(
+            c_a=c_a, c_s=c_s, c_z=c_z, n_heads=n_heads
+        )
+        self.conditioned_transition_block = AtomConditionedTransitionBlock(
+            c_a=c_a, c_s=c_s, n=2
+        )
+
+    def __call__(self, a: mx.array, s: mx.array, z: mx.array) -> mx.array:
+        a = a + self.attention_pair_bias(a, s, z)
+        a = a + self.conditioned_transition_block(a, s)
+        return a
+
+
+class AtomTransformer(nn.Module):
+    """Atom-level transformer (Algorithm 7).
+
+    Uses DiffusionTransformer blocks with cross_attention_mode=True
+    at atom resolution with atom pair bias.
+
+    For protein-only (1:1 atom-to-token mapping), the local windowing
+    is not needed -- we run standard full attention at atom resolution
+    since N_atoms = N_tokens.
+
+    Args:
+        c_atom: atom embedding dim (128).
+        c_atompair: atom pair dim (16).
+        n_blocks: number of transformer blocks.
+        n_heads: number of attention heads (4).
+    """
+
+    def __init__(
+        self,
+        c_atom: int = 128,
+        c_atompair: int = 16,
+        n_blocks: int = 1,
+        n_heads: int = 4,
+    ):
+        super().__init__()
+        self.diffusion_transformer = _AtomDiffusionTransformer(
+            c_a=c_atom, c_s=c_atom, c_z=c_atompair,
+            n_blocks=n_blocks, n_heads=n_heads,
+        )
+
+    def __call__(
+        self,
+        q: mx.array,
+        c: mx.array,
+        p: mx.array,
+    ) -> mx.array:
+        """
+        Args:
+            q: [..., N_atom, c_atom] atom query embedding
+            c: [..., N_atom, c_atom] atom conditioning embedding
+            p: [..., N_atom, N_atom, c_atompair] atom pair embedding
+
+        Returns:
+            [..., N_atom, c_atom] updated atom embedding
+        """
+        return self.diffusion_transformer(a=q, s=c, z=p)
+
+
+class _AtomDiffusionTransformer(nn.Module):
+    """Stack of AtomDiffusionTransformerBlocks.
+
+    This is the inner 'diffusion_transformer' inside AtomTransformer.
+    """
+
+    def __init__(self, c_a: int, c_s: int, c_z: int, n_blocks: int, n_heads: int):
+        super().__init__()
+        self.blocks = [
+            AtomDiffusionTransformerBlock(c_a=c_a, c_s=c_s, c_z=c_z, n_heads=n_heads)
+            for _ in range(n_blocks)
+        ]
+
+    def __call__(self, a: mx.array, s: mx.array, z: mx.array) -> mx.array:
+        for block in self.blocks:
+            a = block(a, s, z)
+        return a
+
+
+# ---------------------------------------------------------------------------
+# AtomAttentionEncoder (Algorithm 5)
+# ---------------------------------------------------------------------------
+
+class AtomAttentionEncoder(nn.Module):
+    """Atom attention encoder for the diffusion module.
+
+    Projects atom features and noisy coordinates to atom space, runs an atom
+    transformer, then aggregates atom features to token-level features.
+
+    For protein-only prediction with 1:1 atom-to-token mapping (Ca atoms),
+    atom_to_token_idx is simply range(N), and aggregation is identity.
+
+    The encoder creates:
+      - c_l: atom single conditioning from ref_pos, ref_charge, features
+      - q_l: atom query = c_l + s_trunk_broadcast + noisy_r
+      - p_lm: atom pair embedding from distances, inv distances, validity, z_pair_broadcast
+      - After atom transformer: aggregate atom features to token level
+
+    Args:
+        c_atom: atom feature dim (128).
+        c_atompair: atom pair dim (16).
+        c_token: output token dim (768).
+        c_s: single embedding dim (384).
+        c_z: pair embedding dim (128).
+        n_blocks: number of atom transformer blocks.
+        n_heads: number of attention heads.
+    """
+
+    def __init__(
+        self,
+        c_atom: int = 128,
+        c_atompair: int = 16,
+        c_token: int = 768,
+        c_s: int = 384,
+        c_z: int = 128,
+        n_blocks: int = 1,
+        n_heads: int = 4,
+    ):
+        super().__init__()
+        self.c_atom = c_atom
+        self.c_atompair = c_atompair
+        self.c_token = c_token
+
+        # --- Atom single conditioning projections ---
+        self.linear_no_bias_ref_pos = LinearNoBias(3, c_atom)
+        self.linear_no_bias_ref_charge = LinearNoBias(1, c_atom)
+        # Features: ref_mask(1) + ref_element(128) + ref_atom_name_chars(256) = 385
+        self.linear_no_bias_f = LinearNoBias(385, c_atom)
+
+        # --- Atom pair projections ---
+        self.linear_no_bias_d = LinearNoBias(3, c_atompair)
+        self.linear_no_bias_invd = LinearNoBias(1, c_atompair)
+        self.linear_no_bias_v = LinearNoBias(1, c_atompair)
+
+        # --- Conditioning from trunk ---
+        self.layernorm_s = nn.LayerNorm(c_s, affine=True)
+        self.linear_no_bias_s = LinearNoBias(c_s, c_atom)
+        self.layernorm_z = nn.LayerNorm(c_z, affine=True)
+        self.linear_no_bias_z = LinearNoBias(c_z, c_atompair)
+
+        # --- Noisy coordinates ---
+        self.linear_no_bias_r = LinearNoBias(3, c_atom)
+
+        # --- Pair refinement ---
+        self.linear_no_bias_cl = LinearNoBias(c_atom, c_atompair)
+        self.linear_no_bias_cm = LinearNoBias(c_atom, c_atompair)
+
+        # Small MLP on pair: ReLU -> Linear -> ReLU -> Linear -> ReLU -> Linear
+        # Protenix stores as small_mlp.{1,3,5}.weight (indices 0,2,4 are ReLU)
+        self.small_mlp = _SmallMLP(c_atompair)
+
+        # --- Atom transformer ---
+        self.atom_transformer = AtomTransformer(
+            c_atom=c_atom, c_atompair=c_atompair,
+            n_blocks=n_blocks, n_heads=n_heads,
+        )
+
+        # --- Aggregate to token level ---
+        self.linear_no_bias_q = LinearNoBias(c_atom, c_token)
+
+    def __call__(
+        self,
+        r_noisy: mx.array,
+        s_trunk: mx.array,
+        z_pair: mx.array,
+        ref_pos: mx.array,
+        ref_charge: mx.array,
+        ref_mask: mx.array,
+    ) -> tuple[mx.array, mx.array, mx.array, mx.array]:
+        """
+        Args:
+            r_noisy: [..., N_atoms, 3] noisy coordinates (already scaled by c_in)
+            s_trunk: [..., N_tokens, c_s] trunk single embedding
+            z_pair: [..., N_tokens, N_tokens, c_z] trunk pair embedding
+            ref_pos: [..., N_atoms, 3] reference positions (Ca coords)
+            ref_charge: [..., N_atoms] reference charges
+            ref_mask: [..., N_atoms] reference mask
+
+        Returns:
+            a_token: [..., N_tokens, c_token] token-level features
+            q_l: [..., N_atoms, c_atom] atom query (skip connection for decoder)
+            c_l: [..., N_atoms, c_atom] atom conditioning (skip for decoder)
+            p_lm: [..., N_atoms, N_atoms, c_atompair] pair embedding (skip for decoder)
+        """
+        N_atoms = r_noisy.shape[-2]
+
+        # --- Build atom single conditioning c_l ---
+        ref_charge_expanded = mx.expand_dims(ref_charge, axis=-1)  # [..., N, 1]
+        ref_mask_expanded = mx.expand_dims(ref_mask, axis=-1)  # [..., N, 1]
+
+        c_l = (
+            self.linear_no_bias_ref_pos(ref_pos)
+            + self.linear_no_bias_ref_charge(mx.arcsinh(ref_charge_expanded))
+        )
+        # For protein-only: features are just ref_mask (1 dim).
+        # ref_element and ref_atom_name_chars are zeros for proteins.
+        # We still need the right input dim (385).
+        features = mx.concatenate([
+            ref_mask_expanded,
+            mx.zeros((*ref_mask.shape, 128)),  # ref_element placeholder
+            mx.zeros((*ref_mask.shape, 256)),   # ref_atom_name_chars placeholder
+        ], axis=-1)
+        c_l = c_l + self.linear_no_bias_f(features.astype(c_l.dtype))
+        c_l = c_l * ref_mask_expanded
+
+        # --- Build atom pair embedding p_lm ---
+        # Pairwise distance vectors: d_ij = ref_pos_i - ref_pos_j
+        d = mx.expand_dims(ref_pos, axis=-2) - mx.expand_dims(ref_pos, axis=-3)
+        # [..., N, N, 3]
+
+        # Validity mask: v_ij = mask_i * mask_j
+        v = mx.expand_dims(ref_mask, axis=-1) * mx.expand_dims(ref_mask, axis=-2)
+        v = mx.expand_dims(v, axis=-1)  # [..., N, N, 1]
+
+        p_lm = self.linear_no_bias_d(d) * v
+        inv_d = 1.0 / (1.0 + mx.sum(d ** 2, axis=-1, keepdims=True))
+        p_lm = p_lm + self.linear_no_bias_invd(inv_d) * v
+        p_lm = p_lm + self.linear_no_bias_v(v.astype(p_lm.dtype))
+
+        # Add z_pair broadcast (token pair -> atom pair, 1:1 mapping)
+        p_lm = p_lm + self.linear_no_bias_z(self.layernorm_z(z_pair))
+
+        # Add trunk single conditioning to atoms (1:1 mapping for proteins)
+        c_l = c_l + self.linear_no_bias_s(self.layernorm_s(s_trunk))
+
+        # Add noisy coordinates
+        q_l = c_l + self.linear_no_bias_r(r_noisy)
+
+        # --- Refine pair embedding with atom conditioning ---
+        c_l_expanded_q = mx.expand_dims(c_l, axis=-2)  # [..., N, 1, c_atom]
+        c_l_expanded_k = mx.expand_dims(c_l, axis=-3)  # [..., 1, N, c_atom]
+        p_lm = (
+            p_lm
+            + self.linear_no_bias_cl(nn.relu(c_l_expanded_q))
+            + self.linear_no_bias_cm(nn.relu(c_l_expanded_k))
+        )
+        p_lm = p_lm + self.small_mlp(p_lm)
+
+        # --- Run atom transformer ---
+        q_l = self.atom_transformer(q_l, c_l, p_lm)
+
+        # --- Aggregate to token level (1:1 for proteins: just project) ---
+        a_token = nn.relu(self.linear_no_bias_q(q_l))
+
+        return a_token, q_l, c_l, p_lm
+
+
+class _SmallMLP(nn.Module):
+    """Small MLP for pair refinement in AtomAttentionEncoder.
+
+    Structure: ReLU -> Linear -> ReLU -> Linear -> ReLU -> Linear
+    Protenix checkpoint: small_mlp.{1,3,5}.weight
+    (indices 0,2,4 are ReLU activations)
+
+    We expose .layers as a list to match the 1-indexed naming.
+    """
+
+    def __init__(self, c: int):
+        super().__init__()
+        # We name these to match checkpoint: small_mlp.1, small_mlp.3, small_mlp.5
+        # But MLX lists are 0-indexed, so we use indices 0, 1, 2 internally
+        # and handle mapping in weight_converter
+        self.layer_1 = LinearNoBias(c, c)
+        self.layer_3 = LinearNoBias(c, c)
+        self.layer_5 = LinearNoBias(c, c)
+
+    def __call__(self, x: mx.array) -> mx.array:
+        x = nn.relu(x)
+        x = self.layer_1(x)
+        x = nn.relu(x)
+        x = self.layer_3(x)
+        x = nn.relu(x)
+        x = self.layer_5(x)
+        return x
+
+
+# ---------------------------------------------------------------------------
+# AtomAttentionDecoder (Algorithm 6)
+# ---------------------------------------------------------------------------
+
+class AtomAttentionDecoder(nn.Module):
+    """Atom attention decoder for the diffusion module.
+
+    Projects token features back to atom space, adds skip connection from
+    encoder, runs atom transformer, then projects to coordinate updates.
+
+    Args:
+        c_token: input token dim (768).
+        c_atom: atom feature dim (128).
+        c_atompair: atom pair dim (16).
+        n_blocks: number of atom transformer blocks.
+        n_heads: number of attention heads.
+    """
+
+    def __init__(
+        self,
+        c_token: int = 768,
+        c_atom: int = 128,
+        c_atompair: int = 16,
+        n_blocks: int = 1,
+        n_heads: int = 4,
+    ):
+        super().__init__()
+        self.linear_no_bias_a = LinearNoBias(c_token, c_atom)
+        self.layernorm_q = nn.LayerNorm(c_atom, affine=True)
+        self.linear_no_bias_out = LinearNoBias(c_atom, 3)
+        self.atom_transformer = AtomTransformer(
+            c_atom=c_atom, c_atompair=c_atompair,
+            n_blocks=n_blocks, n_heads=n_heads,
+        )
+
+    def __call__(
+        self,
+        a_token: mx.array,
+        q_skip: mx.array,
+        c_skip: mx.array,
+        p_skip: mx.array,
+    ) -> mx.array:
+        """
+        Args:
+            a_token: [..., N_tokens, c_token] token-level features
+            q_skip: [..., N_atoms, c_atom] skip connection from encoder
+            c_skip: [..., N_atoms, c_atom] conditioning skip from encoder
+            p_skip: [..., N_atoms, N_atoms, c_atompair] pair skip from encoder
+
+        Returns:
+            [..., N_atoms, 3] coordinate updates
+        """
+        # Broadcast token to atom (1:1 for proteins) + skip connection
+        q = self.linear_no_bias_a(a_token) + q_skip
+
+        # Run atom transformer
+        q = self.atom_transformer(q, c_skip, p_skip)
+
+        # Project to coordinate update
+        r = self.linear_no_bias_out(self.layernorm_q(q))
+        return r
+
+
+# ---------------------------------------------------------------------------
 # DiffusionModule  (Algorithm 20)
 # ---------------------------------------------------------------------------
 
 class DiffusionModule(nn.Module):
     """Complete diffusion module for structure prediction.
 
-    Implements AF3 Algorithm 20 (simplified for Mini-Flow):
-      1. AtomAttentionEncoder (simplified: Linear projections)
-      2. Stack of DiffusionTransformerBlocks
-      3. AtomAttentionDecoder (simplified: Linear projections)
+    Implements AF3 Algorithm 20:
+      1. AtomAttentionEncoder: project atoms to token space with atom transformer
+      2. DiffusionTransformer stack: full self-attention at token level
+      3. AtomAttentionDecoder: project back to atom space with atom transformer
 
     The EDM parameterization is used:
       - c_in  = 1 / sqrt(sigma_data^2 + sigma^2)
@@ -410,35 +954,37 @@ class DiffusionModule(nn.Module):
       - c_out  = sigma * sigma_data / sqrt(sigma_data^2 + sigma^2)
       - D(x, sigma) = c_skip * x + c_out * F(c_in * x, c_noise(sigma))
 
-    For flow matching, the output is interpreted as a velocity field.
-
     Args:
         sigma_data: data std dev constant.
         c_atom: atom feature dim.
+        c_atompair: atom pair dim.
         c_token: token activation dim.
         c_s: single embedding dim.
         c_z: pair embedding dim.
         c_s_inputs: input embedding dim.
         c_noise_emb: noise Fourier embedding dim.
-        n_encoder_blocks: number of atom attention encoder blocks (simplified).
-        n_transformer_blocks: number of diffusion transformer blocks.
-        n_decoder_blocks: number of atom attention decoder blocks (simplified).
+        n_atom_encoder_blocks: number of atom encoder transformer blocks.
+        n_transformer_blocks: number of main diffusion transformer blocks.
+        n_atom_decoder_blocks: number of atom decoder transformer blocks.
         n_head: number of transformer heads.
+        n_atom_head: number of atom transformer heads.
     """
 
     def __init__(
         self,
         sigma_data: float = 16.0,
         c_atom: int = 128,
+        c_atompair: int = 16,
         c_token: int = 768,
         c_s: int = 384,
         c_z: int = 128,
         c_s_inputs: int = 449,
         c_noise_emb: int = 256,
-        n_encoder_blocks: int = 3,
+        n_atom_encoder_blocks: int = 1,
         n_transformer_blocks: int = 8,
-        n_decoder_blocks: int = 3,
+        n_atom_decoder_blocks: int = 1,
         n_head: int = 16,
+        n_atom_head: int = 4,
     ):
         super().__init__()
         self.sigma_data = sigma_data
@@ -454,18 +1000,16 @@ class DiffusionModule(nn.Module):
             c_noise_emb=c_noise_emb,
         )
 
-        # --- AtomAttentionEncoder (simplified: linear projections) ---
-        # In full AF3 this is a sequence-local atom transformer.
-        # Here we use stacked linear layers as a placeholder.
-        encoder_layers = []
-        # coords (3) -> c_atom
-        encoder_layers.append(LinearNoBias(3, c_atom))
-        for _ in range(n_encoder_blocks - 1):
-            encoder_layers.append(LinearNoBias(c_atom, c_atom))
-        self.encoder_layers = encoder_layers
-        self.encoder_ln = nn.LayerNorm(c_atom)
-        # Aggregate atoms to tokens: c_atom -> c_token
-        self.encoder_proj = LinearNoBias(c_atom, c_token)
+        # --- AtomAttentionEncoder ---
+        self.atom_attention_encoder = AtomAttentionEncoder(
+            c_atom=c_atom,
+            c_atompair=c_atompair,
+            c_token=c_token,
+            c_s=c_s,
+            c_z=c_z,
+            n_blocks=n_atom_encoder_blocks,
+            n_heads=n_atom_head,
+        )
 
         # Single conditioning projection (Alg20 line 4)
         self.ln_s = nn.LayerNorm(c_s, affine=False)
@@ -485,46 +1029,14 @@ class DiffusionModule(nn.Module):
 
         self.ln_a = nn.LayerNorm(c_token, affine=False)
 
-        # --- AtomAttentionDecoder (simplified: linear projections) ---
-        self.decoder_proj = LinearNoBias(c_token, c_atom)
-        decoder_layers = []
-        for _ in range(n_decoder_blocks - 1):
-            decoder_layers.append(LinearNoBias(c_atom, c_atom))
-        decoder_layers.append(LinearNoBias(c_atom, 3))
-        self.decoder_layers = decoder_layers
-
-    def _encode_atoms(self, r: mx.array) -> mx.array:
-        """Simplified atom encoder: coords -> token features.
-
-        In the full model, this would be AtomAttentionEncoder with
-        sequence-local atom attention. Here we use linear projections.
-
-        Args:
-            r: [..., N_atoms, 3] coordinates (already scaled by c_in)
-
-        Returns:
-            [..., N_tokens, c_token] token-level activations
-            (assuming 1:1 atom-to-token mapping for simplicity)
-        """
-        h = r
-        for layer in self.encoder_layers:
-            h = nn.silu(layer(h))
-        h = self.encoder_ln(h)
-        return self.encoder_proj(h)
-
-    def _decode_atoms(self, a: mx.array) -> mx.array:
-        """Simplified atom decoder: token features -> coord updates.
-
-        Args:
-            a: [..., N_tokens, c_token]
-
-        Returns:
-            [..., N_atoms, 3] coordinate updates
-        """
-        h = self.decoder_proj(a)
-        for layer in self.decoder_layers[:-1]:
-            h = nn.silu(layer(h))
-        return self.decoder_layers[-1](h)
+        # --- AtomAttentionDecoder ---
+        self.atom_attention_decoder = AtomAttentionDecoder(
+            c_token=c_token,
+            c_atom=c_atom,
+            c_atompair=c_atompair,
+            n_blocks=n_atom_decoder_blocks,
+            n_heads=n_atom_head,
+        )
 
     def f_forward(
         self,
@@ -533,6 +1045,9 @@ class DiffusionModule(nn.Module):
         s_inputs: mx.array,
         s_trunk: mx.array,
         z_trunk: mx.array,
+        ref_pos: mx.array,
+        ref_charge: mx.array,
+        ref_mask: mx.array,
     ) -> mx.array:
         """Raw network F_theta(c_in * x, c_noise(sigma)).
 
@@ -542,6 +1057,9 @@ class DiffusionModule(nn.Module):
             s_inputs: [..., N_tokens, c_s_inputs]
             s_trunk: [..., N_tokens, c_s]
             z_trunk: [..., N_tokens, N_tokens, c_z]
+            ref_pos: [..., N_atoms, 3] reference positions
+            ref_charge: [..., N_atoms] reference charges
+            ref_mask: [..., N_atoms] atom mask
 
         Returns:
             [..., N_atoms, 3] predicted coordinate update
@@ -549,20 +1067,32 @@ class DiffusionModule(nn.Module):
         # Conditioning
         s_cond, z_cond = self.conditioning(sigma, s_inputs, s_trunk, z_trunk)
 
-        # Encode atoms to token level
-        a = self._encode_atoms(r_noisy)
+        # Atom attention encoder
+        a_token, q_skip, c_skip, p_skip = self.atom_attention_encoder(
+            r_noisy=r_noisy,
+            s_trunk=s_cond,
+            z_pair=z_cond,
+            ref_pos=ref_pos,
+            ref_charge=ref_charge,
+            ref_mask=ref_mask,
+        )
 
         # Add conditioned single embedding
-        a = a + self.linear_s_to_token(self.ln_s(s_cond))
+        a_token = a_token + self.linear_s_to_token(self.ln_s(s_cond))
 
         # Diffusion transformer stack
         for block in self.transformer_blocks:
-            a = block(a, s_cond, z_cond)
+            a_token = block(a_token, s_cond, z_cond)
 
-        a = self.ln_a(a)
+        a_token = self.ln_a(a_token)
 
-        # Decode back to atom coordinates
-        r_update = self._decode_atoms(a)
+        # Atom attention decoder
+        r_update = self.atom_attention_decoder(
+            a_token=a_token,
+            q_skip=q_skip,
+            c_skip=c_skip,
+            p_skip=p_skip,
+        )
         return r_update
 
     def __call__(
@@ -572,6 +1102,9 @@ class DiffusionModule(nn.Module):
         s_inputs: mx.array,
         s_trunk: mx.array,
         z_trunk: mx.array,
+        ref_pos: Optional[mx.array] = None,
+        ref_charge: Optional[mx.array] = None,
+        ref_mask: Optional[mx.array] = None,
     ) -> mx.array:
         """One-step denoise: x_noisy, sigma -> x_denoised.
 
@@ -587,10 +1120,23 @@ class DiffusionModule(nn.Module):
             s_inputs: [..., N_tokens, c_s_inputs]
             s_trunk: [..., N_tokens, c_s]
             z_trunk: [..., N_tokens, N_tokens, c_z]
+            ref_pos: [..., N_atoms, 3] reference positions (defaults to zeros)
+            ref_charge: [..., N_atoms] reference charges (defaults to zeros)
+            ref_mask: [..., N_atoms] atom mask (defaults to ones)
 
         Returns:
             [..., N_atoms, 3] denoised coordinates
         """
+        N_atoms = x_noisy.shape[-2]
+
+        # Default reference features for protein-only mode
+        if ref_pos is None:
+            ref_pos = mx.zeros_like(x_noisy)
+        if ref_charge is None:
+            ref_charge = mx.zeros(x_noisy.shape[:-1])
+        if ref_mask is None:
+            ref_mask = mx.ones(x_noisy.shape[:-1])
+
         sd2 = self.sigma_data ** 2
         s2 = sigma ** 2
 
@@ -599,7 +1145,10 @@ class DiffusionModule(nn.Module):
         r_noisy = x_noisy * _expand_scalar(c_in, x_noisy.ndim - 1)
 
         # Forward pass
-        r_update = self.f_forward(r_noisy, sigma, s_inputs, s_trunk, z_trunk)
+        r_update = self.f_forward(
+            r_noisy, sigma, s_inputs, s_trunk, z_trunk,
+            ref_pos, ref_charge, ref_mask,
+        )
 
         # EDM recombination
         c_skip = sd2 / (sd2 + s2)
@@ -683,6 +1232,9 @@ class FlowMatchingODESampler:
         s_inputs: mx.array,
         s_trunk: mx.array,
         z_trunk: mx.array,
+        ref_pos: Optional[mx.array] = None,
+        ref_charge: Optional[mx.array] = None,
+        ref_mask: Optional[mx.array] = None,
     ) -> mx.array:
         """Run the ODE sampler.
 
@@ -692,6 +1244,9 @@ class FlowMatchingODESampler:
             s_inputs: [..., N_tokens, c_s_inputs] input embeddings
             s_trunk: [..., N_tokens, c_s] trunk single embeddings
             z_trunk: [..., N_tokens, N_tokens, c_z] trunk pair embeddings
+            ref_pos: [..., N_atoms, 3] reference positions (optional)
+            ref_charge: [..., N_atoms] reference charges (optional)
+            ref_mask: [..., N_atoms] atom mask (optional)
 
         Returns:
             [..., N_atoms, 3] denoised coordinates
@@ -717,7 +1272,8 @@ class FlowMatchingODESampler:
             else:
                 # Full model evaluation: D(x, sigma)
                 x_denoised = self.model(
-                    x, sigma_arr, s_inputs, s_trunk, z_trunk
+                    x, sigma_arr, s_inputs, s_trunk, z_trunk,
+                    ref_pos, ref_charge, ref_mask,
                 )
                 # Flow-matching velocity: v = (x_denoised - x) / sigma
                 velocity = (x_denoised - x) / max(sigma_cur, 1e-8)
