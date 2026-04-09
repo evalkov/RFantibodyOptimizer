@@ -129,7 +129,8 @@ struct ResultsTable: View {
                     }
                     .width(50)
 
-                    TableColumn("P(bind)", value: \.pBind) { d in
+                    TableColumn(campaign.config.validator == .protenix ? "ipTM" : "P(bind)",
+                               value: \.pBind) { d in
                         MetricCell(value: d.design.pBind, format: "%.3f",
                                    color: d.design.pBind.map { MetricColor.pBind($0) })
                     }
@@ -160,7 +161,8 @@ struct ResultsTable: View {
             // Summary stats bar
             if campaign.completedDesigns.count >= 3 {
                 Divider()
-                StatsSummaryBar(designs: campaign.completedDesigns)
+                StatsSummaryBar(designs: campaign.completedDesigns,
+                               validator: campaign.config.validator)
             }
         }
         .sheet(isPresented: $showLog) {
@@ -384,11 +386,13 @@ struct MetricCell: View {
 
 struct StatsSummaryBar: View {
     let designs: [NanobodyDesign]
+    var validator: Validator = .rf2
 
     var body: some View {
         HStack(spacing: 24) {
             StatItem(label: "pLDDT", values: designs.compactMap(\.plddt))
-            StatItem(label: "P(bind)", values: designs.compactMap(\.pBind))
+            StatItem(label: validator == .protenix ? "ipTM" : "P(bind)",
+                     values: designs.compactMap(\.pBind))
             StatItem(label: "CDR RMSD", values: designs.compactMap(\.cdrRMSD))
             StatItem(label: "MPNN", values: designs.compactMap(\.mpnnScore))
 

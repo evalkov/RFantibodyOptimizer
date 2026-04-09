@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct DesignDetailView: View {
+    @Environment(DesignCampaign.self) private var campaign
     let design: NanobodyDesign
     @State private var colorScheme: ProteinColorScheme = .cdr
     @State private var trajectoryFrame: Int = 0
@@ -79,7 +80,7 @@ struct DesignDetailView: View {
                             MetricLabel("iPAE")
                             MetricValue(design.ipae, format: "%.2f A",
                                         color: design.ipae.map { MetricColor.ipae($0) })
-                            MetricLabel("P(bind)")
+                            MetricLabel(campaign.config.validator == .protenix ? "ipTM" : "P(bind)")
                             MetricValue(design.pBind, format: "%.4f",
                                         color: design.pBind.map { MetricColor.pBind($0) })
                         }
