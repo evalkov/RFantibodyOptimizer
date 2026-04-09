@@ -1240,7 +1240,7 @@ class FlowMatchingODESampler:
 
         Args:
             x_init: [..., N_atoms, 3] initial noisy coordinates
-                    (sampled from N(0, s_max^2 * I))
+                    (sampled from N(0, sigma_0^2 * I) where sigma_0 = noise_schedule[0])
             s_inputs: [..., N_tokens, c_s_inputs] input embeddings
             s_trunk: [..., N_tokens, c_s] trunk single embeddings
             z_trunk: [..., N_tokens, N_tokens, c_z] trunk pair embeddings
@@ -1275,8 +1275,9 @@ class FlowMatchingODESampler:
                     x, sigma_arr, s_inputs, s_trunk, z_trunk,
                     ref_pos, ref_charge, ref_mask,
                 )
-                # Flow-matching velocity: v = (x_denoised - x) / sigma
-                velocity = (x_denoised - x) / max(sigma_cur, 1e-8)
+                # Probability flow ODE score: d = (x - x_denoised) / sigma
+                # (Protenix convention: delta = (x_noisy - x_denoised) / t_hat)
+                velocity = (x - x_denoised) / max(sigma_cur, 1e-8)
 
                 if self.tea_cache is not None:
                     self.tea_cache.cache_result(velocity)

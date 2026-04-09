@@ -323,8 +323,11 @@ class ProtenixMiniModule(nn.Module):
             coordinates = coordinates_override
         else:
             sampler = self._get_sampler()
-            # Initialize from noise
-            x_init = mx.random.normal(shape=(B, N, 3)) * sampler.s_max
+            # Initialize from noise at the first noise schedule level.
+            # Protenix convention: x_init ~ N(0, sigma_0^2 I) where
+            # sigma_0 = sigma_data * s_max (the first schedule value).
+            sigma_init = sampler._noise_schedule()[0]
+            x_init = mx.random.normal(shape=(B, N, 3)) * sigma_init
             coordinates = sampler.sample(
                 x_init=x_init,
                 s_inputs=s_inputs,
