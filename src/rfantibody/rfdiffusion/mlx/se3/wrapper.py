@@ -61,10 +61,11 @@ class SE3TransformerWrapper(nn.Module):
     def __call__(self, G: SimpleGraph,
                  type_0_features: mx.array,
                  type_1_features: Optional[mx.array] = None,
-                 edge_features: Optional[mx.array] = None):
+                 edge_features: Optional[mx.array] = None,
+                 basis: Optional[dict] = None):
         if self.l1_in > 0:
             node_features = {'0': type_0_features, '1': type_1_features}
         else:
             node_features = {'0': type_0_features}
         edge_features_dict = {'0': edge_features}
-        return self.se3(G, node_features, edge_features_dict)
+        return self.se3(G, node_features, edge_features_dict, basis=basis)

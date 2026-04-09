@@ -54,9 +54,10 @@ class MLXAbPredictor(AbPredictor):
         # Apply performance optimizations
         self.model.enable_mixed_precision()
         self.model.set_topk_graph(64)
-        self.model.set_eval_stride(4)
+        rf2_eval_stride = int(os.environ.get('RF2_EVAL_STRIDE', '8'))
+        self.model.set_eval_stride(rf2_eval_stride)
         self.model.enable_fused_kernels()
-        _log.info('RF2 optimizations: fp16 pair, top_k=64, eval_stride=4, fused SE3')
+        _log.info(f'RF2 optimizations: fp16 pair, top_k=64, eval_stride={rf2_eval_stride}, fused SE3')
 
         # Set up utilities from Predictor base class
         from rfantibody.rf2.network import util

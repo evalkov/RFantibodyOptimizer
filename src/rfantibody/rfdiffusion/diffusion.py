@@ -249,8 +249,44 @@ class EuclideanDiffuser():
         return torch.stack(bb_stack).transpose(0,1), torch.stack(T_stack).transpose(0,1)
 
         
-#TODO:  This class uses scipy+numpy for the slerping/matrix generation 
-#       Probably could be much faster if everything was in torch
+def _rotvec_to_matrix_batch(rotvec):
+    """Batched axis-angle to rotation matrix via Rodrigues' formula.
+
+    Pure numpy replacement for scipy.spatial.transform.Rotation.from_rotvec().as_matrix().
+    Handles zero-rotation vectors gracefully.
+
+    Args:
+        rotvec: (..., 3) rotation vectors (axis-angle representation)
+
+    Returns:
+        (..., 3, 3) rotation matrices
+    """
+    shape = rotvec.shape[:-1]
+    rotvec = rotvec.reshape(-1, 3)
+    theta = np.linalg.norm(rotvec, axis=-1, keepdims=True)  # (N, 1)
+    safe_theta = np.maximum(theta, 1e-10)
+    k = rotvec / safe_theta  # unit axis (N, 3)
+
+    # Skew-symmetric matrix K
+    K = np.zeros((len(k), 3, 3), dtype=rotvec.dtype)
+    K[:, 0, 1] = -k[:, 2]; K[:, 0, 2] =  k[:, 1]
+    K[:, 1, 0] =  k[:, 2]; K[:, 1, 2] = -k[:, 0]
+    K[:, 2, 0] = -k[:, 1]; K[:, 2, 1] =  k[:, 0]
+
+    # Rodrigues: R = I + sin(θ)K + (1-cos(θ))K²
+    I = np.eye(3, dtype=rotvec.dtype)[None]  # (1, 3, 3)
+    ct = np.cos(theta)[..., None]  # (N, 1, 1)
+    st = np.sin(theta)[..., None]  # (N, 1, 1)
+    K2 = K @ K
+    R = I + st * K + (1 - ct) * K2
+
+    # For near-zero rotations, return identity
+    mask = (theta.squeeze(-1) < 1e-8)
+    if mask.any():
+        R[mask] = np.eye(3, dtype=rotvec.dtype)
+
+    return R.reshape(shape + (3, 3))
+
 
 def write_pkl(save_path: str, pkl_data):
     """Serialize data into a pickle file."""
@@ -596,9 +632,9 @@ class IGSO3():
             sampled_rots = sampled_rots * non_diffusion_mask
             rot_score = rot_score * non_diffusion_mask
 
-        # Apply sampled rot.
-        R_sampled = scipy_R.from_rotvec(
-            sampled_rots.reshape(-1, 3)).as_matrix().reshape(
+        # Apply sampled rot (pure numpy Rodrigues, no scipy dependency).
+        R_sampled = _rotvec_to_matrix_batch(
+            sampled_rots.reshape(-1, 3)).reshape(
                 self.T, num_res, 3, 3)
         R_perturbed = np.einsum(
             'tnij,njk->tnik', R_sampled, R_true)

@@ -19,13 +19,21 @@ _log = logging.getLogger(__name__)
 
 
 def _torch_to_mlx(t):
-    """Convert a PyTorch tensor to an MLX array via numpy."""
+    """Convert a PyTorch tensor to an MLX array via numpy.
+
+    Optimized to skip .cpu() when tensor is already on CPU (common case
+    in this pipeline since MLX handles Metal internally).
+    """
     import mlx.core as mx
     if t is None:
         return None
     if hasattr(t, 'numpy'):
         try:
-            arr = t.detach().cpu().numpy()
+            # Skip .cpu() if already on CPU (avoids no-op overhead)
+            if t.device.type == 'cpu':
+                arr = t.detach().numpy()
+            else:
+                arr = t.detach().cpu().numpy()
         except RuntimeError:
             arr = t.cpu().numpy()
     elif isinstance(t, np.ndarray):

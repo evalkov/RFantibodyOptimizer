@@ -553,77 +553,163 @@ class AbSampler(Sampler):
 
         return retval
 
+    def _init_step_cache(self):
+        """Initialize adaptive step caching state (TeaCache-style).
+
+        Inspired by SimpleFold-Turbo: at each diffusion step, compute a
+        lightweight scalar proxy for how much the prediction has changed.
+        When the accumulated change is below a threshold, skip the expensive
+        forward pass and reuse the previous prediction.
+        """
+        self._cache_enabled = os.environ.get('CACHE_ENABLED', '1') == '1'
+        self._cache_threshold = float(os.environ.get('CACHE_THRESHOLD', '0.15'))
+        self._cache_warmup = int(os.environ.get('CACHE_WARMUP', '3'))
+        self._cache_accumulator = 0.0
+        self._cache_prev_modulated = None
+        self._cache_prev_px0 = None
+        self._cache_prev_alpha = None
+        self._cache_prev_logits = None
+        self._cache_prev_plddt = None
+        self._cache_prev_msa_prev = None
+        self._cache_prev_seq_in = None
+        self._cache_hits = 0
+        self._cache_misses = 0
+
+    def _should_compute_step(self, t, x_t):
+        """Decide whether to run the full forward pass or reuse cache.
+
+        Returns True if we must compute, False if we can reuse cached outputs.
+        """
+        if not self._cache_enabled or self._cache_prev_px0 is None:
+            return True
+
+        # Always compute during warmup (first few steps from T down)
+        steps_done = self.T - t
+        if steps_done < self._cache_warmup:
+            return True
+
+        # Compute modulated input signal: ||x_t||₂ · (1 - t/T + ε)
+        modulated = torch.norm(x_t.float()).item() * (1.0 - t / self.T + 0.1)
+
+        if self._cache_prev_modulated is None:
+            self._cache_prev_modulated = modulated
+            return True
+
+        # Accumulate relative difference
+        rel_diff = abs(modulated - self._cache_prev_modulated) / (abs(self._cache_prev_modulated) + 1e-6)
+        self._cache_accumulator += rel_diff
+        self._cache_prev_modulated = modulated
+
+        if self._cache_accumulator >= self._cache_threshold:
+            # Cache miss: reset accumulator, must compute
+            self._cache_accumulator = 0.0
+            return True
+
+        # Cache hit: reuse previous outputs
+        return False
+
     def sample_step(self, *, t, seq_t, x_t, seq_init, final_step):
 
-        msa_masked, msa_full, seq_in, xt_in, idx_pdb, t1d, t2d, xyz_t, alpha_t = self._preprocess(
-            seq_t, x_t, t)
+        # Initialize cache on first call
+        if not hasattr(self, '_cache_enabled'):
+            self._init_step_cache()
 
-        B,N,L = xyz_t.shape[:3]
+        # --- Adaptive step caching decision ---
+        cache_hit = not self._should_compute_step(t, x_t)
 
-        ##################################
-        ######## Seq Self Cond ###########
-        ##################################
-        if (t < self.diffuser.T) and (t != self.diffuser_conf.partial_T) \
-            and self.preprocess_conf.selfcondition_msaprev and self.preprocess_conf.msaprev_bugfix:
-
-            msa_prev = self.msa_prev
-
+        if cache_hit:
+            # Reuse cached model outputs — skip preprocessing + forward pass
+            self._cache_hits += 1
+            px0 = self._cache_prev_px0
+            alpha = self._cache_prev_alpha
+            logits = self._cache_prev_logits
+            plddt = self._cache_prev_plddt
+            msa_prev_out = self._cache_prev_msa_prev
+            seq_in = self._cache_prev_seq_in
+            self.prev_pred = torch.clone(px0)
+            self.msa_prev = torch.clone(msa_prev_out) if msa_prev_out is not None else None
+            self._log.info(f'Timestep {t}: CACHE HIT (accumulator={self._cache_accumulator:.4f})')
         else:
-            msa_prev = None 
+            # Full forward pass
+            self._cache_misses += 1
 
-        ##################################
-        ######## Str Self Cond ###########
-        ##################################
-        if (t < self.diffuser.T) and (t != self.diffuser_conf.partial_T):
+            msa_masked, msa_full, seq_in, xt_in, idx_pdb, t1d, t2d, xyz_t, alpha_t = self._preprocess(
+                seq_t, x_t, t)
 
-            xyz_t, t2d, xyz_sc, sc2d = process_selfcond(self.prev_pred, t2d, xyz_t, self.ab_conf, xyz_t.device)
+            B,N,L = xyz_t.shape[:3]
 
-            # Correct selfcond now will detect from the checkpoint file whether it
-            # should be run or not
-            t2d = correct_selfcond(
-                                    t2d,
-                                    self.ab_conf,
-                                    self.ab_item.inputs.xyz_true,
-                                    self.ab_item.loop_mask,
-                                    self.ab_item.target_mask,
-                                    self.ab_item.interchain_mask
-                                  )
+            ##################################
+            ######## Seq Self Cond ###########
+            ##################################
+            if (t < self.diffuser.T) and (t != self.diffuser_conf.partial_T) \
+                and self.preprocess_conf.selfcondition_msaprev and self.preprocess_conf.msaprev_bugfix:
 
-        else:
-            # The non-selfcond step for antibodies is to just leave the input as-is
-            sc2d, xyz_sc = process_init_selfcond(t2d, xyz_t, self.ab_conf, xyz_t.device)
-        
-        with torch.no_grad():
-            px0=xt_in
-            for rec in range(self.recycle_schedule[t-1]):
-                msa_prev, pair_prev, px0, state_prev, alpha, logits, plddt = self.model(msa_masked,
-                                    msa_full,
-                                    seq_in,
-                                    px0,
-                                    idx_pdb,
-                                    t1d=t1d,
-                                    t2d=t2d,
-                                    sc2d=sc2d,
-                                    xyz_sc=xyz_sc,
-                                    xyz_t=xyz_t,
-                                    alpha_t=alpha_t,
-                                    msa_prev = msa_prev,
-                                    pair_prev = None,
-                                    state_prev = None,
-                                    t=torch.tensor(t),
-                                    return_infer=True,
-                                    motif_mask=self.diffusion_mask.squeeze().to(self.device))   
+                msa_prev = self.msa_prev
 
-                # To permit 'recycling' within a timestep, in a manner akin to how this model was trained
-                # Aim is to basically just replace the xyz_t with the model's last px0, and to *not* recycle the state, pair or msa embeddings
-                if rec < self.recycle_schedule[t-1] -1:
-                    zeros = torch.zeros(B,1,L,24,3).float().to(xyz_t.device)
-                    xyz_t = torch.cat((px0.unsqueeze(1),zeros), dim=-2) # [B,T,L,27,3]
-                    t2d   = xyz_to_t2d(xyz_t) # [B,T,L,L,44]
-                    px0=xt_in
+            else:
+                msa_prev = None
 
-        self.prev_pred = torch.clone(px0)
-        self.msa_prev  = torch.clone(msa_prev)
+            ##################################
+            ######## Str Self Cond ###########
+            ##################################
+            if (t < self.diffuser.T) and (t != self.diffuser_conf.partial_T):
+
+                xyz_t, t2d, xyz_sc, sc2d = process_selfcond(self.prev_pred, t2d, xyz_t, self.ab_conf, xyz_t.device)
+
+                # Correct selfcond now will detect from the checkpoint file whether it
+                # should be run or not
+                t2d = correct_selfcond(
+                                        t2d,
+                                        self.ab_conf,
+                                        self.ab_item.inputs.xyz_true,
+                                        self.ab_item.loop_mask,
+                                        self.ab_item.target_mask,
+                                        self.ab_item.interchain_mask
+                                      )
+
+            else:
+                # The non-selfcond step for antibodies is to just leave the input as-is
+                sc2d, xyz_sc = process_init_selfcond(t2d, xyz_t, self.ab_conf, xyz_t.device)
+
+            with torch.no_grad():
+                px0=xt_in
+                for rec in range(self.recycle_schedule[t-1]):
+                    msa_prev, pair_prev, px0, state_prev, alpha, logits, plddt = self.model(msa_masked,
+                                        msa_full,
+                                        seq_in,
+                                        px0,
+                                        idx_pdb,
+                                        t1d=t1d,
+                                        t2d=t2d,
+                                        sc2d=sc2d,
+                                        xyz_sc=xyz_sc,
+                                        xyz_t=xyz_t,
+                                        alpha_t=alpha_t,
+                                        msa_prev = msa_prev,
+                                        pair_prev = None,
+                                        state_prev = None,
+                                        t=torch.tensor(t),
+                                        return_infer=True,
+                                        motif_mask=self.diffusion_mask.squeeze().to(self.device))
+
+                    # To permit 'recycling' within a timestep, in a manner akin to how this model was trained
+                    # Aim is to basically just replace the xyz_t with the model's last px0, and to *not* recycle the state, pair or msa embeddings
+                    if rec < self.recycle_schedule[t-1] -1:
+                        zeros = torch.zeros(B,1,L,24,3).float().to(xyz_t.device)
+                        xyz_t = torch.cat((px0.unsqueeze(1),zeros), dim=-2) # [B,T,L,27,3]
+                        t2d   = xyz_to_t2d(xyz_t) # [B,T,L,L,44]
+                        px0=xt_in
+
+            self.prev_pred = torch.clone(px0)
+            self.msa_prev  = torch.clone(msa_prev)
+
+            # Cache outputs for potential reuse
+            self._cache_prev_px0 = px0
+            self._cache_prev_alpha = alpha
+            self._cache_prev_logits = logits
+            self._cache_prev_plddt = plddt
+            self._cache_prev_msa_prev = msa_prev
+            self._cache_prev_seq_in = seq_in
 
         # prediction of X0
         _, px0  = self.allatom(torch.argmax(seq_in, dim=-1), px0, alpha)
@@ -637,7 +723,7 @@ class AbSampler(Sampler):
             sampled_seq, num_classes=22).to(self.device).float()
 
         pseq_0[self.mask_seq.squeeze()] = seq_init[self.mask_seq.squeeze()].to(self.device) # [L,22]
-        
+
         if t > final_step:
             x_t_1, seq_t_1, tors_t_1, px0 = self.denoiser.get_next_pose(
                 xt=x_t,

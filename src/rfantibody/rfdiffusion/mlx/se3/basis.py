@@ -198,8 +198,18 @@ def get_clebsch_gordon(J: int, d_in: int, d_out: int) -> mx.array:
     return cg[key]
 
 
+_ALL_CG_CACHE: Dict[int, List[List[mx.array]]] = {}
+
+
 def get_all_clebsch_gordon(max_degree: int) -> List[List[mx.array]]:
-    """Get all CG coefficients as nested list matching PyTorch convention."""
+    """Get all CG coefficients as nested list matching PyTorch convention.
+
+    Results are cached at module level so repeated calls (e.g. per SE3
+    block per diffusion step) return instantly.
+    """
+    if max_degree in _ALL_CG_CACHE:
+        return _ALL_CG_CACHE[max_degree]
+
     all_cb = []
     for d_in in range(max_degree + 1):
         for d_out in range(max_degree + 1):
@@ -207,6 +217,8 @@ def get_all_clebsch_gordon(max_degree: int) -> List[List[mx.array]]:
             for J in range(abs(d_in - d_out), d_in + d_out + 1):
                 K_Js.append(get_clebsch_gordon(J, d_in, d_out))
             all_cb.append(K_Js)
+
+    _ALL_CG_CACHE[max_degree] = all_cb
     return all_cb
 
 

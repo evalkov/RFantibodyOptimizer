@@ -122,10 +122,15 @@ if os.environ.get('MLX_FUSED', '1') == '1':
 sampler.model.set_topk_graph(mode_cfg['top_k'])
 sampler.model.set_se3_stride(mode_cfg['se3_stride'])
 sampler.model.set_n_main_block(mode_cfg['n_main'])
-eval_stride = int(os.environ.get('MLX_EVAL_STRIDE', '4'))
+eval_stride = int(os.environ.get('MLX_EVAL_STRIDE', '8'))
 sampler.model.set_eval_stride(eval_stride)
+cache_enabled = os.environ.get('CACHE_ENABLED', '1') == '1'
+cache_threshold = float(os.environ.get('CACHE_THRESHOLD', '0.15'))
 print(f"  Optimizations: fp16 pair, fused Metal SE3, SDPA attention, "
       f"top_k={mode_cfg['top_k']}, eval_stride={eval_stride}")
+if cache_enabled:
+    print(f"  Adaptive step cache: threshold={cache_threshold}, "
+          f"warmup={os.environ.get('CACHE_WARMUP', '3')}")
 
 # --- Run design ---
 NUM_BACKBONES = int(os.environ.get('NUM_BACKBONES', '1'))
@@ -185,6 +190,11 @@ n_steps = len(step_times)
 total_design = t_design_end - t_design_start
 avg_step = np.mean(step_times)
 
+# Report adaptive step cache statistics
+cache_hits = getattr(sampler, '_cache_hits', 0)
+cache_misses = getattr(sampler, '_cache_misses', 0)
+cache_total = cache_hits + cache_misses
+
 print()
 print("=" * 60)
 print(f"  RESULTS")
@@ -194,6 +204,17 @@ print(f"  Backbones:        {NUM_BACKBONES}")
 print(f"  Diffusion steps:  {n_steps}")
 print(f"  Total design:     {total_design:.1f}s")
 print(f"  Avg step:         {avg_step*1000:.0f}ms ({avg_step:.2f}s)")
+if cache_total > 0:
+    hit_rate = cache_hits / cache_total * 100
+    print(f"  Cache hits:       {cache_hits}/{cache_total} ({hit_rate:.0f}%)")
+    if cache_hits > 0:
+        # Estimate speedup: cached steps are ~free vs full forward pass
+        computed_times = [t for i, t in enumerate(step_times) if i < cache_misses]
+        if computed_times:
+            avg_computed = np.mean(computed_times)
+            theoretical = avg_computed * n_steps
+            print(f"  Cache speedup:    ~{theoretical / total_design:.1f}x "
+                  f"({total_design:.1f}s vs ~{theoretical:.0f}s uncached)")
 if NUM_BACKBONES > 1:
     print(f"  Throughput:       {avg_step/NUM_BACKBONES*1000:.0f}ms/design/step")
 print(f"  Init time:        {t_init - t_start:.1f}s")
@@ -322,7 +343,9 @@ if (not SKIP_MPNN and os.path.exists(mpnn_ckpt)
         )
 
         for i, (seq, score) in enumerate(seqs_scores):
-            pose_i = SimplePose.from_pdb(bb_pdb)
+            # Reuse cached backbone_pose instead of re-reading PDB from disk
+            import copy
+            pose_i = copy.deepcopy(backbone_pose)
             sf_i = SampleFeatures(pose_i, tag=f'bb{bb_idx}_seq{i}')
             sf_i.loop_string2fixed_res(design_loops)
             sf_i.thread_mpnn_seq(seq)
