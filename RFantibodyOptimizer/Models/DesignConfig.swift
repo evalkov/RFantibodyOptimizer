@@ -52,6 +52,26 @@ enum TScheme: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum Validator: String, Codable, CaseIterable, Identifiable {
+    case rf2, protenix
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .rf2: "RF2"
+        case .protenix: "Protenix-Mini"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .rf2: "RoseTTAFold2 — P(bind), iPAE, pLDDT"
+        case .protenix: "Protenix-Mini-Flow — ipTM, PAE, pLDDT (faster)"
+        }
+    }
+}
+
 /// Per-loop configuration: enabled + length range.
 struct LoopConfig: Codable, Hashable {
     var enabled: Bool = true
@@ -110,6 +130,9 @@ struct DesignConfig: Codable {
     var cacheEnabled: Bool = true
     var cacheThreshold: Double = 0.15
     var cacheWarmup: Int = 3
+
+    // Structure validator (advanced)
+    var validator: Validator = .rf2
 
     // MPNN
     var mpnnTemp: Double = 0.1
@@ -174,6 +197,7 @@ struct DesignConfig: Codable {
             "cache_enabled": cacheEnabled,
             "cache_threshold": cacheThreshold,
             "cache_warmup": cacheWarmup,
+            "validator": validator.rawValue,
         ]
         if !hotspotRes.trimmingCharacters(in: .whitespaces).isEmpty {
             dict["hotspot_res"] = hotspotRes.trimmingCharacters(in: .whitespaces)

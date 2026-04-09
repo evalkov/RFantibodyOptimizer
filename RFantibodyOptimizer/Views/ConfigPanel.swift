@@ -145,6 +145,15 @@ struct ConfigPanel: View {
                     Stepper("Cache warmup: \(campaign.config.cacheWarmup)",
                             value: $campaign.config.cacheWarmup, in: 1...10)
                 }
+
+                Divider()
+
+                Picker("Validator", selection: $campaign.config.validator) {
+                    ForEach(Validator.allCases) { v in
+                        Text(v.label).tag(v)
+                    }
+                }
+                .help(campaign.config.validator.help)
             }
 
             Section {
