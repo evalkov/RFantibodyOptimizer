@@ -250,6 +250,7 @@ class ProtenixMiniModule(nn.Module):
         esm_embeddings: mx.array | None = None,
         n_cycle: int = 1,
         run_confidence: bool = True,
+        coordinates_override: mx.array | None = None,
     ) -> dict[str, mx.array]:
         """Full forward pass: embed -> trunk -> diffuse -> confidence.
 
@@ -302,15 +303,21 @@ class ProtenixMiniModule(nn.Module):
         mx.eval(s_trunk, z_trunk)
 
         # 3. Run diffusion (sample coordinates)
-        sampler = self._get_sampler()
-        # Initialize from noise
-        x_init = mx.random.normal(shape=(B, N, 3)) * sampler.s_max
-        coordinates = sampler.sample(
-            x_init=x_init,
-            s_inputs=s_inputs,
-            s_trunk=s_trunk,
-            z_trunk=z_trunk,
-        )
+        if coordinates_override is not None:
+            # Use provided coordinates (e.g. from RFdiffusion backbone)
+            # instead of running diffusion — useful when atom attention
+            # encoder/decoder weights are not available
+            coordinates = coordinates_override
+        else:
+            sampler = self._get_sampler()
+            # Initialize from noise
+            x_init = mx.random.normal(shape=(B, N, 3)) * sampler.s_max
+            coordinates = sampler.sample(
+                x_init=x_init,
+                s_inputs=s_inputs,
+                s_trunk=s_trunk,
+                z_trunk=z_trunk,
+            )
 
         result = {
             "coordinates": coordinates,

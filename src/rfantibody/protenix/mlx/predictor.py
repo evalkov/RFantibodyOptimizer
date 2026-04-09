@@ -240,6 +240,14 @@ class ProtenixPredictor:
         # Extract features
         features = self._extract_features_from_pose(pose)
 
+        # Extract backbone Cα coordinates from pose if available
+        # (bypasses diffusion module which lacks atom attention weights)
+        coords_override = None
+        if hasattr(pose, 'xyz') and torch.is_tensor(pose.xyz):
+            # pose.xyz: [L, n_atoms, 3] — take Cα (index 1)
+            ca_coords = pose.xyz[:, 1, :].unsqueeze(0).float()  # [1, L, 3]
+            coords_override = ca_coords
+
         with torch.no_grad():
             result = self.model(
                 seq=features['seq'],
@@ -247,6 +255,7 @@ class ProtenixPredictor:
                 chain_id=features['chain_id'],
                 n_cycle=self._cfg.get('n_cycle', 1),
                 run_confidence=True,
+                coordinates_override=coords_override,
             )
 
         # Format output metrics to match RF2 convention

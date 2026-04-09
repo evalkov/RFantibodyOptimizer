@@ -96,6 +96,7 @@ class MLXProtenixWrapper:
         esm_embeddings=None,
         n_cycle=1,
         run_confidence=True,
+        coordinates_override=None,
     ):
         """Forward pass: converts torch tensors to MLX, runs model, converts back.
 
@@ -112,6 +113,7 @@ class MLXProtenixWrapper:
             esm_embeddings: [B, N, esm_dim] ESM embeddings (optional)
             n_cycle: recycling cycles (default 1)
             run_confidence: compute confidence metrics (default True)
+            coordinates_override: [B, N, 3] skip diffusion, use these coords
 
         Returns:
             dict of PyTorch tensors with keys:
@@ -138,6 +140,7 @@ class MLXProtenixWrapper:
         mx_profile = _torch_to_mlx(profile)
         mx_deletion_mean = _torch_to_mlx(deletion_mean)
         mx_esm = _torch_to_mlx(esm_embeddings)
+        mx_coords_override = _torch_to_mlx(coordinates_override)
 
         # Run MLX model
         result = self.model(
@@ -152,6 +155,7 @@ class MLXProtenixWrapper:
             deletion_mean=mx_deletion_mean,
             esm_embeddings=mx_esm,
             n_cycle=n_cycle,
+            coordinates_override=mx_coords_override,
             run_confidence=run_confidence,
         )
 
