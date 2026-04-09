@@ -210,13 +210,30 @@ class TriangleAttention(nn.Module):
         else:
             bias = triangle_bias
 
-        # Use mx.fast.scaled_dot_product_attention
-        # q,k,v: [*, I, H, J, D], mask: [*, I, H, 1, J] broadcast OK
+        # mx.fast.scaled_dot_product_attention requires rank 4: (B, H, T, D)
+        # q,k,v: [*, I, H, J, D] -> fold batch+I into one dim
+        flat_B = 1
+        for s in batch_shape:
+            flat_B *= s
+        flat_B *= I
+
+        q_4d = q.reshape(flat_B, self.n_head, J, self.c_hidden)
+        k_4d = k.reshape(flat_B, self.n_head, J, self.c_hidden)
+        v_4d = v.reshape(flat_B, self.n_head, J, self.c_hidden)
+
+        if bias is not None:
+            # bias: [*, I, H, 1, J] -> fold batch+I -> (flat_B, H, 1, J)
+            # SDPA will broadcast the 1 over the query dimension
+            bias_4d = bias.reshape(flat_B, self.n_head, -1, J)
+        else:
+            bias_4d = None
+
         out = mx.fast.scaled_dot_product_attention(
-            q, k, v, scale=self.scale, mask=bias
+            q_4d, k_4d, v_4d, scale=self.scale, mask=bias_4d
         )
 
-        # out: [*, I, H, J, D] -> [*, I, J, H, D]
+        # Unfold: (flat_B, H, J, D) -> [*, I, H, J, D] -> [*, I, J, H, D]
+        out = out.reshape(*batch_shape, I, self.n_head, J, self.c_hidden)
         out = mx.moveaxis(out, -3, -2)
         out = out.reshape(*batch_shape, I, J, self.n_head * self.c_hidden)
 
