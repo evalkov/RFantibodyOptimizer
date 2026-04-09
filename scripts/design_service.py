@@ -117,6 +117,9 @@ DEFAULTS = {
     'seed': 0,
     'skip_mpnn': False,
     'skip_rf2': False,
+    'cache_enabled': True,
+    'cache_threshold': 0.15,
+    'cache_warmup': 3,
 }
 
 MODE_CONFIGS = {
@@ -207,6 +210,11 @@ def run_pipeline(cfg):
     # Noise scales
     conf.denoiser.noise_scale_ca = noise_scale_ca
     conf.denoiser.noise_scale_frame = noise_scale_frame
+
+    # Adaptive step cache settings (passed via JSON, consumed via os.environ)
+    os.environ['CACHE_ENABLED'] = '1' if cfg.get('cache_enabled', True) else '0'
+    os.environ['CACHE_THRESHOLD'] = str(cfg.get('cache_threshold', 0.15))
+    os.environ['CACHE_WARMUP'] = str(cfg.get('cache_warmup', 3))
 
     # --- Init sampler ---
     emit({'event': 'init_start', 'component': 'sampler'})

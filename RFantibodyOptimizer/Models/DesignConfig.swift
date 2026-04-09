@@ -106,6 +106,11 @@ struct DesignConfig: Codable {
     var noiseScaleCA: Double = 1.0
     var noiseScaleFrame: Double = 1.0
 
+    // Adaptive step cache (advanced)
+    var cacheEnabled: Bool = true
+    var cacheThreshold: Double = 0.15
+    var cacheWarmup: Int = 3
+
     // MPNN
     var mpnnTemp: Double = 0.1
     var mpnnSeqs: Int = 1
@@ -166,6 +171,9 @@ struct DesignConfig: Codable {
             "seed": seed,
             "skip_mpnn": skipMPNN,
             "skip_rf2": skipRF2,
+            "cache_enabled": cacheEnabled,
+            "cache_threshold": cacheThreshold,
+            "cache_warmup": cacheWarmup,
         ]
         if !hotspotRes.trimmingCharacters(in: .whitespaces).isEmpty {
             dict["hotspot_res"] = hotspotRes.trimmingCharacters(in: .whitespaces)

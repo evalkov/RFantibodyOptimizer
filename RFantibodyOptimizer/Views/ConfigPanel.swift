@@ -129,6 +129,22 @@ struct ConfigPanel: View {
 
                 Stepper("Seed: \(campaign.config.seed)",
                         value: $campaign.config.seed, in: 0...99999)
+
+                Divider()
+
+                Toggle("Step cache", isOn: $campaign.config.cacheEnabled)
+
+                if campaign.config.cacheEnabled {
+                    HStack {
+                        Text("Cache threshold: \(campaign.config.cacheThreshold, specifier: "%.2f")")
+                        Spacer()
+                        Slider(value: $campaign.config.cacheThreshold, in: 0.01...0.50, step: 0.01)
+                            .frame(width: 120)
+                    }
+
+                    Stepper("Cache warmup: \(campaign.config.cacheWarmup)",
+                            value: $campaign.config.cacheWarmup, in: 1...10)
+                }
             }
 
             Section {
