@@ -148,7 +148,16 @@ class ProtenixPredictor:
         seq = torch.tensor([seq_indices], dtype=torch.long)
 
         # Extract chain IDs
-        if hasattr(pose, 'chain_id'):
+        if hasattr(pose, 'chain_dict') and pose.chain_dict:
+            # RF2 pose: chain_dict has {'H': bool_mask, 'T': bool_mask, ...}
+            chain_id = torch.zeros(N, dtype=torch.long)
+            for i, (chain_name, mask) in enumerate(pose.chain_dict.items()):
+                if torch.is_tensor(mask):
+                    chain_id[mask.bool()] = i
+                else:
+                    chain_id[torch.tensor(mask, dtype=torch.bool)] = i
+            chain_id = chain_id.unsqueeze(0)  # [1, N]
+        elif hasattr(pose, 'chain_id'):
             if torch.is_tensor(pose.chain_id):
                 chain_id = pose.chain_id.unsqueeze(0).long()
             else:
