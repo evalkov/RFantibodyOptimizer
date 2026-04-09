@@ -50,9 +50,6 @@ _SKIP_PREFIXES = (
     'msa_linear_no_bias_s.',
     'diffusion_module.atom_attention_encoder.',
     'diffusion_module.atom_attention_decoder.',
-    # Buffers / scalars not used as model parameters
-    'confidence_head.plddt_weight',
-    'confidence_head.resolved_weight',
 )
 
 
@@ -240,7 +237,7 @@ def _remap_diffusion_block_suffix(suffix: str) -> str | None:
 def _remap_conditioning_suffix(suffix: str) -> str | None:
     """Map a suffix within diffusion_module.diffusion_conditioning.<suffix>."""
     if suffix == 'fourier_embedding.w':
-        return 'fourier_emb.W'
+        return 'fourier_emb.w'
     if suffix == 'fourier_embedding.b':
         return None
     if suffix in ('layernorm_n.weight', 'layernorm_s.weight', 'layernorm_z.weight'):
@@ -330,6 +327,14 @@ def _remap_key(key: str) -> str | None:
         rest = key[len('confidence_head.'):]
 
         # Simple renames
+        # Direct leaf tensors (no dot suffix)
+        conf_direct = {
+            'plddt_weight': 'plddt_weight',
+            'resolved_weight': 'resolved_weight',
+        }
+        if rest in conf_direct:
+            return f'confidence_head.{conf_direct[rest]}', value
+
         conf_renames = {
             'input_strunk_ln.': 'ln_s_trunk.',
             'pae_ln.': 'ln_pae.',

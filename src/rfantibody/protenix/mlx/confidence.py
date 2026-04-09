@@ -331,9 +331,13 @@ class ConfidenceHead(nn.Module):
 
         self.ln_plddt = nn.LayerNorm(c_s)
         self.linear_plddt = LinearNoBias(c_s, b_plddt)
+        # Multi-head pLDDT weight: [n_atom_type, c_s, b_plddt] — loaded from checkpoint
+        self.plddt_weight = mx.zeros((24, c_s, b_plddt))
 
         self.ln_resolved = nn.LayerNorm(c_s)
         self.linear_resolved = LinearNoBias(c_s, b_resolved)
+        # Multi-head resolved weight: [n_atom_type, c_s, b_resolved]
+        self.resolved_weight = mx.zeros((24, c_s, b_resolved))
 
         # Zero-init output projections
         self.linear_pae.weight = mx.zeros_like(self.linear_pae.weight)
@@ -410,11 +414,22 @@ class ConfidenceHead(nn.Module):
         z_sym = z + mx.transpose(z, axes=(*range(len(z.shape) - 3), -2, -3, -1))
         pde_logits = self.linear_pde(self.ln_pde(z_sym))
 
-        # pLDDT: per-token confidence
-        plddt_logits = self.linear_plddt(self.ln_plddt(s))
+        # pLDDT: per-token confidence (multi-head: einsum with [n_atom_type, c_s, n_bins])
+        s_plddt = self.ln_plddt(s)
+        if hasattr(self, 'plddt_weight'):
+            # Multi-head: plddt_weight is [n_atom_type, c_s, b_plddt]
+            # For proteins, use atom_type=1 (CA) or average over types
+            # Simple approach: use first atom type (backbone representative)
+            plddt_logits = s_plddt @ self.plddt_weight[0]  # [*, N, b_plddt]
+        else:
+            plddt_logits = self.linear_plddt(s_plddt)
 
         # Resolution: per-token resolved/unresolved
-        resolved_logits = self.linear_resolved(self.ln_resolved(s))
+        s_resolved = self.ln_resolved(s)
+        if hasattr(self, 'resolved_weight'):
+            resolved_logits = s_resolved @ self.resolved_weight[0]
+        else:
+            resolved_logits = self.linear_resolved(s_resolved)
 
         # Compute pLDDT scores from logits
         plddt_probs = mx.softmax(plddt_logits, axis=-1)
