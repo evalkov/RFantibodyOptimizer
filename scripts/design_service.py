@@ -539,7 +539,8 @@ def run_pipeline(cfg):
                 plddt_val = _safe_float(metrics['pred_lddt'].mean()) if metrics.get('pred_lddt') is not None else None
                 pae_val = _safe_float(metrics['pae'].mean()) if metrics.get('pae') is not None else None
                 ipae_val = _safe_float(metrics.get('interaction_pae'))
-                p_bind_val = _safe_float(metrics.get('p_bind', 0)) or 0.0
+                # Use ipTM as P(bind) proxy when using Protenix validator
+                p_bind_val = _safe_float(metrics.get('p_bind') or metrics.get('iptm', 0)) or 0.0
 
                 # Extract RMSDs
                 rmsd_dict = {}
