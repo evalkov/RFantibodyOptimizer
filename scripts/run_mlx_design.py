@@ -387,11 +387,24 @@ if (not SKIP_RF2 and os.path.exists(rf2_ckpt)
     from rfantibody.rf2.modules.preprocess import Preprocess, pose_to_inference_RFinput
     from rfantibody.rf2.mlx.predictor import MLXAbPredictor
 
+    # Apply RF2 mode-specific optimizations
+    RF2_MODE_CONFIGS = {
+        'full':  dict(se3_stride=1, n_main=0, recycles=10),
+        'fast':  dict(se3_stride=2, n_main=24, recycles=5),
+        'draft': dict(se3_stride=4, n_main=18, recycles=3),
+    }
+    rf2_mode_cfg = RF2_MODE_CONFIGS.get(MODE, RF2_MODE_CONFIGS['full'])
+    os.environ['RF2_SE3_STRIDE'] = str(rf2_mode_cfg['se3_stride'])
+    os.environ['RF2_N_MAIN'] = str(rf2_mode_cfg['n_main'])
+    rf2_recycles = min(RF2_RECYCLES, rf2_mode_cfg['recycles'])
+    print(f"  RF2 mode: se3_stride={rf2_mode_cfg['se3_stride']}, "
+          f"n_main={rf2_mode_cfg['n_main'] or 'all'}, recycles={rf2_recycles}")
+
     # Build RF2 config
     rf2_conf = OmegaConf.create({
         'model': {'model_weights': rf2_ckpt},
         'inference': {
-            'num_recycles': RF2_RECYCLES,
+            'num_recycles': rf2_recycles,
             'converge_threshold': RF2_THRESHOLD,
             'hotspot_show_proportion': 0.1,
         },

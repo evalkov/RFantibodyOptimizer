@@ -640,7 +640,8 @@ class IterativeSimulator(nn.Module):
 
         # Main blocks
         se3_stride = getattr(self, 'se3_stride', 1)
-        for i_m in range(self.n_main_block):
+        n_main = getattr(self, 'n_main_block_infer', self.n_main_block)
+        for i_m in range(n_main):
             R_in = mx.stop_gradient(R_in)
             T_in = mx.stop_gradient(T_in)
 
@@ -655,7 +656,7 @@ class IterativeSimulator(nn.Module):
             T_s.append(T_in)
             alpha_s.append(alpha)
 
-            if (i_m + 1) % eval_stride == 0 or i_m == self.n_main_block - 1:
+            if (i_m + 1) % eval_stride == 0 or i_m == n_main - 1:
                 mx.eval(msa, pair, R_in, T_in, state, alpha)
 
         # Refinement blocks (Str2Str only)

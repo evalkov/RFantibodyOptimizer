@@ -242,6 +242,10 @@ class RoseTTAFoldModule(nn.Module):
         """Skip SE3 in alternating main blocks."""
         self.simulator.se3_stride = stride
 
+    def set_n_main_block(self, n: int):
+        """Reduce main blocks for faster inference (default: 36)."""
+        self.simulator.n_main_block_infer = min(n, self.simulator.n_main_block)
+
     def enable_fused_kernels(self):
         """Enable fused Metal kernels for SE3 convolutions."""
         sim = self.simulator

@@ -166,6 +166,11 @@ class MLXRF2Wrapper:
         self.model.set_se3_stride(stride)
         _log.info(f'RF2 MLX SE3 stride: {stride}')
 
+    def set_n_main_block(self, n: int):
+        """Reduce main blocks for faster inference (default: 36)."""
+        self.model.set_n_main_block(n)
+        _log.info(f'RF2 MLX main blocks: {n}')
+
     def set_eval_stride(self, stride: int):
         """Reduce mx.eval() frequency for better kernel fusion."""
         self.model.simulator.eval_stride = stride

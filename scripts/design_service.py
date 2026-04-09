@@ -128,6 +128,13 @@ MODE_CONFIGS = {
     'draft': dict(top_k=64, se3_stride=4, n_main=24),
 }
 
+# RF2 mode-specific settings: se3_stride, n_main_block, recycles
+RF2_MODE_CONFIGS = {
+    'full':  dict(se3_stride=1, n_main=0, recycles=10),   # 0 = all blocks
+    'fast':  dict(se3_stride=2, n_main=24, recycles=5),
+    'draft': dict(se3_stride=4, n_main=18, recycles=3),
+}
+
 
 def make_deterministic(seed=0):
     import torch
@@ -253,10 +260,19 @@ def run_pipeline(cfg):
         from rfantibody.rf2.modules.preprocess import Preprocess, pose_to_inference_RFinput
         from rfantibody.rf2.mlx.predictor import MLXAbPredictor
 
+        # Apply RF2 mode-specific optimizations
+        rf2_mode_cfg = RF2_MODE_CONFIGS.get(mode, RF2_MODE_CONFIGS['full'])
+        os.environ['RF2_SE3_STRIDE'] = str(rf2_mode_cfg['se3_stride'])
+        os.environ['RF2_N_MAIN'] = str(rf2_mode_cfg['n_main'])
+        # Use mode-appropriate recycles unless user overrode
+        rf2_recycles = cfg.get('rf2_recycles', rf2_mode_cfg['recycles'])
+        if rf2_recycles > rf2_mode_cfg['recycles'] and mode != 'full':
+            rf2_recycles = rf2_mode_cfg['recycles']
+
         rf2_conf = OmegaConf.create({
             'model': {'model_weights': rf2_ckpt},
             'inference': {
-                'num_recycles': cfg['rf2_recycles'],
+                'num_recycles': rf2_recycles,
                 'converge_threshold': cfg['rf2_threshold'],
                 'hotspot_show_proportion': 0.1,
             },
